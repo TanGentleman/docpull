@@ -48,8 +48,8 @@ jobs:
           echo "Using environment: $ENV"
           echo "API URL: $BASE_URL"
 
-      - name: Fetch hooks documentation
-        id: fetch-hooks
+      - name: Fetch Claude hooks documentation
+        id: fetch-claude-hooks
         run: |
           # Call your Modal API endpoint
           response=$(curl -s ${{ steps.set-env.outputs.base_url }}/hooks)
@@ -59,6 +59,22 @@ jobs:
 
           # Save to a file
           echo "$content" > docs/claude/hooks.md
+
+      - name: Fetch Cursor hooks documentation
+        id: fetch-cursor-hooks
+        run: |
+          # Generic endpoint for Cursor docs
+          response=$(curl -s -X POST \
+            ${{ steps.set-env.outputs.base_url }}/scrape \
+            -H "Content-Type: application/json" \
+            -d '{
+              "url": "https://cursor.com/docs/agent/hooks",
+              "selector": "//button[@type=\"button\"][.//span[text()=\"Copy page\"]]"
+            }')
+
+          content=$(echo "$response" | jq -r '.content')
+          mkdir -p docs/cursor
+          echo "$content" > docs/cursor/hooks.md
 
       # - name: Fetch other documentation (example)
       #   id: fetch-other
