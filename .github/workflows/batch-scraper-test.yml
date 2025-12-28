@@ -45,7 +45,7 @@ jobs:
           echo "Using environment: $ENV"
           echo "API URL: $BASE_URL"
 
-      - name: Batch scrape Claude documentation
+      - name: Batch scrape Claude and Cursor documentation
         id: batch-scrape
         run: |
           echo "Calling batch scrape endpoint..."
@@ -65,6 +65,10 @@ jobs:
                 {
                   "url": "https://code.claude.com/docs/en/slash-commands",
                   "selector": "#page-context-menu-button"
+                },
+                {
+                  "url": "https://cursor.com/docs/agent/hooks",
+                  "selector": "//button[@type=\"button\"][.//span[text()=\"Copy page\"]]"
                 }
               ]
             }')
@@ -83,14 +87,20 @@ jobs:
           slash_content=$(echo "$response" | jq -r '.results[1].content')
           slash_time=$(echo "$response" | jq -r '.results[1].processing_time_seconds')
 
+          cursor_hooks_content=$(echo "$response" | jq -r '.results[2].content')
+          cursor_hooks_time=$(echo "$response" | jq -r '.results[2].processing_time_seconds')
+
           # Save to files
           mkdir -p docs/claude
           echo "$hooks_content" > docs/claude/hooks.md
           echo "$slash_content" > docs/claude/slash-commands.md
+          mkdir -p docs/cursor
+          echo "$cursor_hooks_content" > docs/cursor/hooks.md
 
           # Display individual processing times
-          echo "Hooks documentation: ${hooks_time}s ($(echo "$hooks_content" | wc -c) chars)"
-          echo "Slash Commands documentation: ${slash_time}s ($(echo "$slash_content" | wc -c) chars)"
+          echo "Claude Hooks documentation: ${hooks_time}s ($(echo "$hooks_content" | wc -c) chars)"
+          echo "Claude Slash Commands documentation: ${slash_time}s ($(echo "$slash_content" | wc -c) chars)"
+          echo "Cursor Hooks documentation: ${cursor_hooks_time}s ($(echo "$cursor_hooks_content" | wc -c) chars)"
 
       - name: Check for changes
         id: check-changes
@@ -102,6 +112,6 @@ jobs:
         run: |
           git config user.name "GitHub Actions Bot"
           git config user.email "actions@github.com"
-          git add docs/claude/*.md
+          git add docs/claude/*.md docs/cursor/*.md
           git commit -m "chore: update documentation content via batch scraper [automated]"
           git push
