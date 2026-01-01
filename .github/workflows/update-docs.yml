@@ -92,13 +92,14 @@ jobs:
           fi
 
           echo "Selected sites:$SELECTED_SITES"
+          export SELECTED_SITES
 
           # Build requests JSON from selectors.json
           python3 << 'EOF'
           import json
           import os
 
-          selected = "$SELECTED_SITES".split()
+          selected = os.environ.get("SELECTED_SITES", "").split()
 
           with open("selectors.json") as f:
               data = json.load(f)
