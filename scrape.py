@@ -62,7 +62,12 @@ def get_all_pages(sites_list: Optional[List[str]] = None) -> List[PageInfo]:
 def get_scrape_requests(sites_list: Optional[List[str]] = None) -> List[Dict[str, str]]:
     """Get scrape request payloads for pages with copyButton selector."""
     return [
-        {"url": p.url, "selector": p.selectors["copyButton"], "site_name": p.site_name}
+        {
+            "url": p.url,
+            "selector": p.selectors["copyButton"],
+            "method": p.selectors.get("method", "click_copy"),
+            "site_name": p.site_name,
+        }
         for p in get_all_pages(sites_list)
         if "copyButton" in p.selectors
     ]
@@ -74,27 +79,32 @@ def get_available_sites() -> List[str]:
     return list(data["sites"].keys())
 
 
-def batch_scrape(sites_list: Optional[List[str]] = None, verbose: bool = True) -> Dict[str, Dict[str, str]]:
+def batch_scrape(
+    sites_list: Optional[List[str]] = None,
+    use_cache: bool = True,
+    verbose: bool = True,
+) -> Dict[str, Dict[str, str]]:
     """Scrape all pages and return docs organized by site/page."""
     load_dotenv()
-    
+
     modal_username = os.environ.get("MODAL_USERNAME")
     modal_key = os.environ.get("MODAL_KEY")
     modal_secret = os.environ.get("MODAL_SECRET")
     env = os.environ.get("ENVIRONMENT", "prod")
     url_suffix = "-dev" if env == "dev" else ""
-    
+
     base_url = f"https://{modal_username}--content-scraper-api-fastapi-app{url_suffix}.modal.run"
-    
+
     if verbose:
         print(f"Using environment: {env}")
         print(f"API URL: {base_url}")
-    
+        print(f"Cache enabled: {use_cache}")
+
     scrape_requests = get_scrape_requests(sites_list)
-    
+
     if verbose:
         print("Calling batch scrape endpoint...")
-    
+
     response = requests.post(
         f"{base_url}/scrape/batch",
         headers={
@@ -102,14 +112,14 @@ def batch_scrape(sites_list: Optional[List[str]] = None, verbose: bool = True) -
             "Modal-Key": modal_key,
             "Modal-Secret": modal_secret
         },
-        json={"requests": scrape_requests}
+        json={"requests": scrape_requests, "use_cache": use_cache}
     )
     
     result = response.json()
-    
+
     if verbose:
         print("Response received!")
-        print(f"Total: {result.get('total')} | Success: {result.get('successful')} | Failed: {result.get('failed')}")
+        print(f"Total: {result.get('total')} | Success: {result.get('successful')} | Failed: {result.get('failed')} | Cached: {result.get('cached', 0)}")
         print(f"Processing time: {result.get('total_processing_time_seconds')}s")
     
     # Build docs dictionary from results
