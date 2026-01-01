@@ -36,6 +36,15 @@
       "selectors": {
         "copyButton": "//*[@id=\"__docusaurus_skipToContent_fallback\"]/div/div/main/div/div/div[1]/div/article/div[1]/button"
       }
+    },
+    "modal": {
+      "baseUrl": "https://modal.com/docs/guide",
+      "pages": {
+        "volumes": "/volumes"
+      },
+      "selectors": {
+        "copyButton": "//button[@title=\"Copy page\"]"
+      }
     }
   }
 }
