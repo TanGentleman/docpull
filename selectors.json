@@ -6,7 +6,8 @@
         "qwen-image-2512": "/models/qwen-image-2512"
       },
       "selectors": {
-        "copyButton": "//button[@aria-label=\"Copy page\"]"
+        "copyButton": "//button[@aria-label=\"Copy page\"]",
+        "method": "click_copy"
       }
     },
     "claude-code": {
@@ -16,7 +17,8 @@
         "slash-commands": "/slash-commands"
       },
       "selectors": {
-        "copyButton": "#page-context-menu-button"
+        "copyButton": "#page-context-menu-button",
+        "method": "click_copy"
       }
     },
     "cursor": {
@@ -25,7 +27,8 @@
         "hooks": "/agent/hooks"
       },
       "selectors": {
-        "copyButton": "//button[@type=\"button\"][.//span[text()=\"Copy page\"]]"
+        "copyButton": "//button[@type=\"button\"][.//span[text()=\"Copy page\"]]",
+        "method": "click_copy"
       }
     },
     "convex": {
@@ -34,7 +37,8 @@
         "http-actions": "/functions/http-actions"
       },
       "selectors": {
-        "copyButton": "//*[@id=\"__docusaurus_skipToContent_fallback\"]/div/div/main/div/div/div[1]/div/article/div[1]/button"
+        "copyButton": "//*[@id=\"__docusaurus_skipToContent_fallback\"]/div/div/main/div/div/div[1]/div/article/div[1]/button",
+        "method": "click_copy"
       }
     },
     "modal": {
@@ -43,7 +47,8 @@
         "volumes": "/volumes"
       },
       "selectors": {
-        "copyButton": "//button[@title=\"Copy page\"]"
+        "copyButton": "//button[@title=\"Copy page\"]",
+        "method": "click_copy"
       }
     }
   }
