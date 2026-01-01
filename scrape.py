@@ -16,18 +16,18 @@ class PageInfo:
     site_name: str
 
 
-def _load_selectors_data() -> Dict:
+def load_selectors_data() -> Dict:
     """Load selectors data from JSON file."""
     with open(Path(__file__).parent / "selectors.json") as f:
         return json.load(f)
 
 
-SELECTORS_DATA = _load_selectors_data()
-
+SELECTORS_DATA = load_selectors_data()
 
 def get_page_info(site_name: str, page_name: str) -> PageInfo:
     """Get PageInfo for a specific site and page."""
-    site = SELECTORS_DATA["sites"].get(site_name)
+    data = load_selectors_data()
+    site = data["sites"].get(site_name)
     if not site:
         raise ValueError(f"Site '{site_name}' not found")
     
@@ -45,7 +45,8 @@ def get_page_info(site_name: str, page_name: str) -> PageInfo:
 def get_all_pages(sites_list: Optional[List[str]] = None) -> List[PageInfo]:
     """Get all pages, optionally filtered by site names."""
     pages = []
-    for site_name, site in SELECTORS_DATA["sites"].items():
+    data = load_selectors_data()
+    for site_name, site in data["sites"].items():
         if sites_list and site_name not in sites_list:
             continue
         selectors = site.get("selectors", {})
@@ -69,7 +70,8 @@ def get_scrape_requests(sites_list: Optional[List[str]] = None) -> List[Dict[str
 
 def get_available_sites() -> List[str]:
     """Get list of all available site names."""
-    return list(SELECTORS_DATA["sites"].keys())
+    data = load_selectors_data()
+    return list(data["sites"].keys())
 
 
 def batch_scrape(sites_list: Optional[List[str]] = None, verbose: bool = True) -> Dict[str, Dict[str, str]]:
