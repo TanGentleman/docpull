@@ -126,8 +126,9 @@ jobs:
                   site_page_map.append({"site": site_name, "page": page_name})
 
           # Write requests to file
+          use_cache = "${{ inputs.use_cache }}" == "true"
           with open("/tmp/requests.json", "w") as f:
-              json.dump({"requests": requests, "use_cache": ${{ inputs.use_cache }}}, f)
+              json.dump({"requests": requests, "use_cache": use_cache}, f)
 
           # Write site/page map for later
           with open("/tmp/site_page_map.json", "w") as f:
