@@ -48,9 +48,11 @@ async def scrape(
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch()
-            context = await browser.new_context(
-                permissions=["clipboard-read", "clipboard-write"]
-            )
+            if job.method == "click_copy":
+                permissions = ["clipboard-read", "clipboard-write"]
+            else:
+                permissions = []
+            context = await browser.new_context(permissions=permissions)
             page = await context.new_page()
 
             await page.goto(job.url, wait_until=job.wait_until, timeout=job.timeout)
