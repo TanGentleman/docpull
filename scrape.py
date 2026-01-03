@@ -148,18 +148,3 @@ def batch_scrape(
                 print(f"  {site_name}/{page_name}: {res.get('processing_time_seconds', 0)}s ({len(content)} chars)")
     
     return docs
-
-def get_docs_links(url: str) -> List[str]:
-    """Get docs links from a URL."""
-    base_url = validate_api_url()
-    print(f"Base URL: {base_url}")
-    headers = get_headers()
-    response = requests.post(
-        f"{base_url}/get_docs_links",
-        headers=headers,
-        json={"url": url}
-    )
-    response_dict = response.json()
-    if "links" not in response_dict:
-        raise ValueError(f"Links not found in response: {response_dict}")
-    return response_dict["links"]
