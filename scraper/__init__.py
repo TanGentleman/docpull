@@ -1,6 +1,6 @@
 """Scraper module - stateless scraping with pluggable extraction."""
 
-from .types import ScrapeJob, ScrapeResult, ExtractFn, ParseFn
+from .models import ScrapeJob, ScrapeResult, ExtractFn, ParseFn
 from .extract import click_copy, text_content, inner_html, EXTRACTORS
 from .core import scrape, scrape_batch
 

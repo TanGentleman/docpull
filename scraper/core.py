@@ -1,6 +1,6 @@
 """Core scraping functionality."""
 
-from .types import ScrapeJob, ScrapeResult, ExtractFn, ParseFn
+from .models import ScrapeJob, ScrapeResult, ExtractFn, ParseFn
 from .extract import EXTRACTORS
 
 
