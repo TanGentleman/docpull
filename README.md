@@ -10,12 +10,43 @@ Draws heavily from: https://github.com/modal-labs/modal-examples
 # install deps
 uv sync
 
-# deploy to modal
+# deploy stable version
 modal deploy content-scraper-api.py
 
-# or test locally
+# while developing, use the hot-reloading dev server
 modal serve content-scraper-api.py
 ```
+
+## docpull CLI
+
+The main way to use this tool. Fetches documentation from supported sites and saves it locally.
+
+**Setup:** Create a `.env` file with your Modal credentials:
+```bash
+MODAL_KEY=wk-...
+MODAL_SECRET=ws-...
+```
+
+**Usage:**
+
+```bash
+# List available sites
+python docpull.py sites
+
+# Get all doc links for a site
+python docpull.py links modal
+python docpull.py links terraform-aws
+
+# Fetch content from a page (saves to ./docs/<site>/<path>.md)
+python docpull.py content modal /guide
+python docpull.py content modal /guide/gpu
+python docpull.py content terraform-aws /resources/aws_instance
+```
+
+Content is saved to `./docs/<site>/` with paths converted to filenames:
+- `/guide` → `guide.md`
+- `/guide/gpu` → `guide_gpu.md`
+- `/resources/aws_instance` → `resources_aws_instance.md`
 
 ## Scraper Module
 
