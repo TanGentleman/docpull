@@ -10,7 +10,7 @@ import modal
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
-from scraper import ScrapeJob, scrape
+from scraper import ScrapeJob, scrape, scrape_links, scrape_content, list_sites
 
 playwright_image = (
     modal.Image.debian_slim(python_version="3.10")
@@ -23,7 +23,7 @@ playwright_image = (
         "playwright install-deps chromium",
         "playwright install chromium",
     )
-    .uv_pip_install("fastapi[standard]", "pydantic", "requests")
+    .uv_pip_install("fastapi[standard]", "pydantic", "requests", "httpx")
     .add_local_python_source("scraper")
 )
 
@@ -56,6 +56,19 @@ class DocResponse(BaseModel):
     content_length: int
     updated_at: int
     from_cache: bool
+
+
+class LinksResponse(BaseModel):
+    site_id: str
+    links: list[str]
+    count: int
+
+
+class ContentResponse(BaseModel):
+    site_id: str
+    path: str
+    content: str
+    content_length: int
 
 
 # --- Helper: Check doc freshness ---
@@ -141,9 +154,14 @@ async def scrape_and_save(site_id: str, page: str) -> dict:
 async def root():
     return {
         "name": "Content Scraper API",
-        "version": "3.1",
+        "version": "4.0",
         "convex_api": CONVEX_API,
         "endpoints": {
+            # New API
+            "/sites": "GET - List available site IDs",
+            "/sites/{site_id}/links": "GET - Get all doc links for a site",
+            "/sites/{site_id}/content": "GET - Get content from a page",
+            # Legacy API
             "/docs/{site_id}/{page}": "GET - Get doc (cached or fresh scrape)",
             "/docs/{site_id}/{page}/spawn": "POST - Spawn background scrape, return task_id",
             "/scrape": "POST - Scrape any URL (stateless)",
@@ -159,6 +177,50 @@ async def health():
     return {"status": "healthy"}
 
 
+# --- New API Endpoints ---
+
+
+@web_app.get("/sites")
+async def get_sites():
+    """List all available site IDs."""
+    sites = list_sites()
+    return {"sites": sites, "count": len(sites)}
+
+
+@web_app.get("/sites/{site_id}/links")
+async def get_site_links(site_id: str) -> LinksResponse:
+    """Get all documentation links for a site."""
+    result = await scrape_links(site_id)
+    if not result.success:
+        raise HTTPException(status_code=500, detail=result.error)
+    return LinksResponse(
+        site_id=site_id,
+        links=result.data,
+        count=len(result.data),
+    )
+
+
+@web_app.get("/sites/{site_id}/content")
+async def get_site_content(
+    site_id: str,
+    path: str = Query(default="", description="Page path relative to baseUrl"),
+) -> ContentResponse:
+    """Get content from a specific page."""
+    result = await scrape_content(site_id, path)
+    if not result.success:
+        raise HTTPException(status_code=500, detail=result.error)
+    content = "\n".join(result.data)
+    return ContentResponse(
+        site_id=site_id,
+        path=path,
+        content=content,
+        content_length=len(content),
+    )
+
+
+# --- Legacy API Endpoints ---
+
+
 @web_app.get("/docs/{site_id}/{page}")
 async def get_doc(
     site_id: str,
@@ -167,7 +229,7 @@ async def get_doc(
 ):
     """
     Get documentation. Returns cached version if fresh, otherwise scrapes.
-    
+
     - max_age=0: Always scrape fresh
     - max_age=3600: Use cache if updated within 1 hour (default)
     - max_age=86400: Use cache if updated within 24 hours
@@ -207,7 +269,7 @@ async def spawn_doc_refresh(
 ):
     """
     Get doc if cached, otherwise spawn background scrape and return task_id.
-    
+
     Returns either:
     - {"cached": true, "doc": DocResponse} if fresh cache exists
     - {"cached": false, "task": TaskResponse} if scrape was spawned

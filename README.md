@@ -1,12 +1,10 @@
-im gonna add some simple api endpoints that are helpful for me.
+# handy-apis
 
-i draw heavily from: https://github.com/modal-labs/modal-examples
+Simple Modal-based API endpoints for web automation and scraping.
 
-## what's here
+Draws heavily from: https://github.com/modal-labs/modal-examples
 
-**content-scraper-api**: a playwright-based scraper that updates and caches documentation for agents.
-
-## quick start
+## Quick Start
 
 ```bash
 # install deps
@@ -15,41 +13,72 @@ uv sync
 # deploy to modal
 modal deploy content-scraper-api.py
 
-# or hot test local edits with dev
+# or test locally
 modal serve content-scraper-api.py
 ```
 
-## using the api
+## Scraper Module
 
-the scraper has a few endpoints:
+A modular scraper with support for multiple documentation sites.
+
+### CLI
 
 ```bash
-
-# scrape a single page
-curl -X POST https://[your-username]--content-scraper-api-fastapi-app.modal.run/scrape \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://example.com", "selector": "#copy-button"}'
-
-# scrape multiple pages in parallel
-curl -X POST https://[your-username]--content-scraper-api-fastapi-app.modal.run/scrape/batch \
-  -H "Content-Type: application/json" \
-  -d '{
-    "requests": [
-      {"url": "https://example.com/page1", "selector": "#copy-button"},
-      {"url": "https://example.com/page2", "selector": "#copy-button"}
-    ]
-  }'
+python -m scraper sites                              # List all available sites
+python -m scraper links terraform-aws                # Get all doc links
+python -m scraper content terraform-aws /resources/aws_instance
+python -m scraper info modal                         # Show site configuration
 ```
 
-## github actions
+### Supported Sites
 
-there's a workflow for batch scraping that saves results to `docs/`.
+| Site | Mode | Description |
+|------|------|-------------|
+| `modal` | fetch | Modal documentation |
+| `convex` | fetch | Convex documentation |
+| `terraform-aws` | browser | Terraform AWS provider docs |
+| `cursor` | fetch | Cursor documentation |
+| `claude-code` | fetch | Claude Code documentation |
+| `unsloth` | fetch | Unsloth documentation |
 
-**setup**: add these secrets to your repo (Settings → Secrets and variables → Actions):
+### Python API
+
+```python
+from scraper import scrape_links, scrape_content, list_sites
+
+# List available sites
+sites = list_sites()
+
+# Get all links for a site
+result = await scrape_links("terraform-aws")
+
+# Get content from a specific page
+result = await scrape_content("modal", "/guide")
+```
+
+## REST API
+
+Deploy `content-scraper-api.py` to get these endpoints:
+
+```
+GET  /sites                        # List available site IDs
+GET  /sites/{site_id}/links        # Get all doc links for a site
+GET  /sites/{site_id}/content      # Get content from a page
+
+# Legacy endpoints
+GET  /docs/{site_id}/{page}        # Get doc (cached or fresh scrape)
+POST /scrape                       # Scrape any URL (stateless)
+```
+
+## GitHub Actions
+
+There's a workflow for batch scraping that saves results to `docs/`.
+
+**Setup**: add these secrets to your repo (Settings → Secrets and variables → Actions):
 - `MODAL_USERNAME`: your username from `https://[your-username]--{project-name}.modal.run/`
-- `MODAL_KEY`: proxy auth token ID (starts with `wk-`, create at https://modal.com/settings/proxy-auth-tokens)
+- `MODAL_KEY`: proxy auth token ID (starts with `wk-`)
 - `MODAL_SECRET`: proxy auth token secret (starts with `ws-`)
 
-the workflow needs write permissions to push changes.
+## Architecture
 
-to run manually: Actions → Batch Scraper Test → Run workflow
+See [docs/SCRAPER_REFACTOR_PLAN.md](docs/SCRAPER_REFACTOR_PLAN.md) for detailed architecture documentation.

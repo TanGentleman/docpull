@@ -112,17 +112,11 @@ async def scrape_terraform_docs():
     print()
 
     async with httpx.AsyncClient(timeout=120.0) as client:
-        print("Calling /scrape endpoint with terraform_registry method...")
-        resp = await client.post(
-            f"{SCRAPER_API}/scrape",
+        print("Calling /sites/terraform-aws/content endpoint...")
+        resp = await client.get(
+            f"{SCRAPER_API}/sites/terraform-aws/content",
             headers=get_auth_headers(),
-            json={
-                "url": TERRAFORM_AWS_DOCS_URL,
-                "selector": "#provider-docs-content",
-                "method": "terraform_registry",
-                "timeout": 60000,
-                "wait_until": "domcontentloaded",
-            },
+            params={"path": ""},
         )
 
         print(f"Response status: {resp.status_code}")

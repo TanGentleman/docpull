@@ -1,15 +1,17 @@
-import json
+"""Tests for the content-scraper Modal API endpoints."""
+
 import os
-import time
-import asyncio
-from pathlib import Path
+import pytest
 import httpx
 from dotenv import load_dotenv
 
 load_dotenv()
 
-SCRAPER_API = "https://tangentleman--content-scraper-api-fastapi-app-dev.modal.run"
-CONVEX_API = "https://tangentleman--convex-api-fastapi-app-dev.modal.run"
+API_BASE = os.environ.get(
+    "SCRAPER_API_URL",
+    "https://tangentleman--content-scraper-api-fastapi-app-dev.modal.run"
+)
+
 
 def get_auth_headers() -> dict:
     """Get Modal auth headers from environment variables."""
@@ -19,162 +21,204 @@ def get_auth_headers() -> dict:
         return {"Modal-Key": key, "Modal-Secret": secret}
     return {}
 
-async def add_pages_to_site(pages_dict: dict[str, str], site_id: str = "modal") -> dict:
-    """Add pages to a site's config in Convex."""
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        # Get current site config
-        resp = await client.get(
-            f"{CONVEX_API}/sites/{site_id}",
-            headers=get_auth_headers(),
-        )
-        if resp.status_code == 404:
-            raise Exception(f"Site '{site_id}' not found")
-        resp.raise_for_status()
-        current_site = resp.json()
-        
-        # Merge new pages with existing pages
-        new_pages = {**current_site.get("pages", {}), **pages_dict}
-        
-        # Update the site with merged pages
-        updated_site = {
-            "siteId": site_id,
-            "name": current_site["name"],
-            "baseUrl": current_site["baseUrl"],
-            "selector": current_site["selector"],
-            "method": current_site.get("method", "click_copy"),
-            "pages": new_pages,
-            "sections": current_site.get("sections"),
-        }
-        
-        resp = await client.post(
-            f"{CONVEX_API}/sites/create",
-            headers=get_auth_headers(),
-            json=updated_site,
-        )
-        resp.raise_for_status()
-        result = resp.json()
-        
-        return {
-            "siteId": site_id,
-            "updated": result.get("updated", False),
-        }
+
+class TestRootAndHealth:
+    """Test basic API endpoints."""
+
+    def test_root_endpoint(self):
+        """Test the root endpoint returns API info."""
+        resp = httpx.get(f"{API_BASE}/", headers=get_auth_headers())
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "name" in data
+        assert "endpoints" in data
+        assert data["name"] == "Content Scraper API"
+
+    def test_health_endpoint(self):
+        """Test the health endpoint returns healthy status."""
+        resp = httpx.get(f"{API_BASE}/health", headers=get_auth_headers())
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "healthy"
 
 
-async def scrape_modal_links(limit: int = 5):
-    """Read modal_links.json and spawn scrape jobs for all links."""
-    with open(Path(__file__).parent.parent / "data" / "modal_links.json", "r") as f:
-        data = json.load(f)
-    
-    links = data.get("modal_links", [])[:limit]
-    print(f"Spawning scrape jobs for {len(links)} links")
-    
-    # First, register all pages with the site config
-    # Build a pages dict: page_key -> path (e.g., "guide-volumes" -> "/guide/volumes")
-    pages_dict = {}
-    for url in links:
-        path = url.replace("https://modal.com/docs", "")  # e.g., "/guide/volumes"
-        # Create a page key by replacing slashes with dashes and removing leading slash
-        page_key = path.lstrip("/").replace("/", "-")  # e.g., "guide-volumes"
-        pages_dict[page_key] = path
-    
-    print(f"Registering {len(pages_dict)} pages with site config...")
-    update_result = await add_pages_to_site(pages_dict)
-    if "error" in update_result:
-        print(f"Warning: Failed to update pages: {update_result['error']}")
+class TestSitesEndpoint:
+    """Test the /sites endpoint."""
+
+    def test_list_sites(self):
+        """Test listing all available sites."""
+        resp = httpx.get(f"{API_BASE}/sites", headers=get_auth_headers())
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "sites" in data
+        assert "count" in data
+        assert isinstance(data["sites"], list)
+        assert data["count"] == len(data["sites"])
+        # Check that expected sites are present
+        expected_sites = ["modal", "convex", "terraform-aws", "cursor", "claude-code"]
+        for site in expected_sites:
+            assert site in data["sites"], f"Expected site '{site}' not found"
+
+
+class TestLinksEndpoint:
+    """Test the /sites/{site_id}/links endpoint."""
+
+    def test_get_modal_links(self):
+        """Test getting links for the modal site."""
+        resp = httpx.get(
+            f"{API_BASE}/sites/modal/links",
+            headers=get_auth_headers(),
+            timeout=120.0,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["site_id"] == "modal"
+        assert "links" in data
+        assert "count" in data
+        assert isinstance(data["links"], list)
+        assert len(data["links"]) > 0
+        # Verify links are valid URLs
+        for link in data["links"][:5]:  # Check first 5 links
+            assert link.startswith("http"), f"Invalid link: {link}"
+
+    def test_get_invalid_site_links(self):
+        """Test that invalid site returns an error."""
+        resp = httpx.get(
+            f"{API_BASE}/sites/nonexistent-site/links",
+            headers=get_auth_headers(),
+            timeout=30.0,
+        )
+        assert resp.status_code == 500
+
+
+class TestContentEndpoint:
+    """Test the /sites/{site_id}/content endpoint."""
+
+    def test_get_modal_content(self):
+        """Test getting content from a modal docs page."""
+        resp = httpx.get(
+            f"{API_BASE}/sites/modal/content",
+            params={"path": "/guide"},
+            headers=get_auth_headers(),
+            timeout=120.0,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["site_id"] == "modal"
+        assert data["path"] == "/guide"
+        assert "content" in data
+        assert "content_length" in data
+        assert data["content_length"] == len(data["content"])
+        assert len(data["content"]) > 0
+
+    def test_get_content_empty_path(self):
+        """Test getting content from root path."""
+        resp = httpx.get(
+            f"{API_BASE}/sites/modal/content",
+            params={"path": ""},
+            headers=get_auth_headers(),
+            timeout=120.0,
+        )
+        # This should either succeed or return an error, but not crash
+        assert resp.status_code in [200, 500]
+
+    def test_get_invalid_site_content(self):
+        """Test that invalid site returns an error."""
+        resp = httpx.get(
+            f"{API_BASE}/sites/nonexistent-site/content",
+            params={"path": "/test"},
+            headers=get_auth_headers(),
+            timeout=30.0,
+        )
+        assert resp.status_code == 500
+
+
+# --- Manual testing functions (run with python tests/test_modal.py) ---
+
+
+def run_manual_tests():
+    """Run tests manually with verbose output."""
+    print(f"Testing API: {API_BASE}")
+    print("=" * 60)
+
+    # Test root endpoint
+    print("\n1. Testing root endpoint...")
+    resp = httpx.get(f"{API_BASE}/", headers=get_auth_headers())
+    print(f"   Status: {resp.status_code}")
+    if resp.status_code == 200:
+        data = resp.json()
+        print(f"   API Name: {data.get('name')}")
+        print(f"   Version: {data.get('version')}")
+        print("   ✓ Root endpoint works")
     else:
-        print(f"Pages registered successfully")
-    
-    async def spawn_scrape(client: httpx.AsyncClient, url: str) -> dict:
-        """Spawn a scrape job for a URL using the /docs/{site_id}/{page}/spawn endpoint."""
-        start = time.time()
-        try:
-            # Extract page path from URL and convert to page key
-            path = url.replace("https://modal.com/docs", "")
-            page_key = path.lstrip("/").replace("/", "-")
-            site_id = "modal"
-            
-            resp = await client.post(
-                f"{SCRAPER_API}/docs/{site_id}/{page_key}/spawn",
-                # params={"max_age": 0},  # Force fresh scrape
-                headers=get_auth_headers(),
-                timeout=30,
-            )
-            elapsed = time.time() - start
-            if resp.status_code == 200:
-                data = resp.json()
-                # Response is either:
-                # - {"cached": True, "doc": DocResponse} if fresh cache exists
-                # - {"cached": False, "task": TaskResponse} if scrape was spawned
-                if data.get("cached"):
-                    doc = data["doc"]
-                    return {
-                        "url": url,
-                        "success": True,
-                        "cached": True,
-                        "time": elapsed,
-                        "site_id": doc["site_id"],
-                        "page": doc["page"],
-                        "content_length": doc["content_length"],
-                    }
-                else:
-                    task = data["task"]
-                    return {
-                        "url": url,
-                        "success": True,
-                        "cached": False,
-                        "time": elapsed,
-                        "task_id": task["task_id"],
-                        "site_id": task["site_id"],
-                        "page": task["page"],
-                    }
-            else:
-                return {
-                    "url": url,
-                    "success": False,
-                    "time": elapsed,
-                    "error": resp.text[:100],
-                }
-        except Exception as e:
-            return {
-                "url": url,
-                "success": False,
-                "time": time.time() - start,
-                "error": str(e),
-            }
-    
-    # Spawn scrape tasks in parallel
-    print(f"\nSpawning scrape tasks for {len(links)} URLs...")
-    async with httpx.AsyncClient() as client:
-        tasks = [spawn_scrape(client, url) for url in links]
-        results = await asyncio.gather(*tasks)
-    
-    # Print results
-    print("\nResults:")
-    print("-" * 60)
-    for r in results:
-        status = "✓" if r["success"] else "✗"
-        if r["success"]:
-            if r.get("cached"):
-                print(f"  {status} {r['url']} (cached)")
-                print(f"      {r['content_length']} chars")
-            else:
-                print(f"  {status} {r['url']} (spawned)")
-                print(f"      task_id: {r['task_id']}")
-        else:
-            print(f"  {status} {r['url']}")
-            print(f"      Error: {r.get('error', 'Unknown')[:80]}")
-    
-    successful = sum(1 for r in results if r["success"])
-    total_time = sum(r["time"] for r in results)
-    print("-" * 60)
-    print(f"Spawned {successful}/{len(results)} scrape tasks in {total_time:.1f}s total")
-    
-    return results
+        print(f"   ✗ Failed: {resp.text[:100]}")
 
-def main():
-    import asyncio
-    results = asyncio.run(scrape_modal_links(limit=400))
-    print(f"results={results}")
+    # Test health endpoint
+    print("\n2. Testing health endpoint...")
+    resp = httpx.get(f"{API_BASE}/health", headers=get_auth_headers())
+    print(f"   Status: {resp.status_code}")
+    if resp.status_code == 200:
+        print(f"   Health: {resp.json()}")
+        print("   ✓ Health endpoint works")
+    else:
+        print(f"   ✗ Failed: {resp.text[:100]}")
+
+    # Test sites endpoint
+    print("\n3. Testing sites endpoint...")
+    resp = httpx.get(f"{API_BASE}/sites", headers=get_auth_headers())
+    print(f"   Status: {resp.status_code}")
+    if resp.status_code == 200:
+        data = resp.json()
+        print(f"   Sites: {data['sites']}")
+        print(f"   Count: {data['count']}")
+        print("   ✓ Sites endpoint works")
+    else:
+        print(f"   ✗ Failed: {resp.text[:100]}")
+
+    # Test links endpoint
+    print("\n4. Testing links endpoint (modal)...")
+    print("   This may take a moment...")
+    resp = httpx.get(
+        f"{API_BASE}/sites/modal/links",
+        headers=get_auth_headers(),
+        timeout=120.0,
+    )
+    print(f"   Status: {resp.status_code}")
+    if resp.status_code == 200:
+        data = resp.json()
+        print(f"   Site ID: {data['site_id']}")
+        print(f"   Link count: {data['count']}")
+        print(f"   First 3 links:")
+        for link in data["links"][:3]:
+            print(f"     - {link}")
+        print("   ✓ Links endpoint works")
+    else:
+        print(f"   ✗ Failed: {resp.text[:100]}")
+
+    # Test content endpoint
+    print("\n5. Testing content endpoint (modal /guide)...")
+    print("   This may take a moment...")
+    resp = httpx.get(
+        f"{API_BASE}/sites/modal/content",
+        params={"path": "/guide"},
+        headers=get_auth_headers(),
+        timeout=120.0,
+    )
+    print(f"   Status: {resp.status_code}")
+    if resp.status_code == 200:
+        data = resp.json()
+        print(f"   Site ID: {data['site_id']}")
+        print(f"   Path: {data['path']}")
+        print(f"   Content length: {data['content_length']} chars")
+        preview = data["content"][:200].replace("\n", " ")
+        print(f"   Preview: {preview}...")
+        print("   ✓ Content endpoint works")
+    else:
+        print(f"   ✗ Failed: {resp.text[:200]}")
+
+    print("\n" + "=" * 60)
+    print("Manual tests completed!")
+
 
 if __name__ == "__main__":
-    main()
+    run_manual_tests()

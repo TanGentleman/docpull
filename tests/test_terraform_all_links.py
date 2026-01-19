@@ -29,26 +29,14 @@ def get_auth_headers() -> dict:
 async def get_terraform_aws_links() -> list[str]:
     """
     Extract all documentation links from Terraform AWS Provider docs via Modal API.
-
-    Uses the terraform_links extraction method which:
-    - Handles cookie consent
-    - Waits for #provider-docs-content
-    - Extracts all links matching the base URL
     """
     print(f"Calling Modal API: {SCRAPER_API}")
     print(f"Target URL: {TERRAFORM_AWS_DOCS_BASE}")
 
     async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await client.post(
-            f"{SCRAPER_API}/scrape",
+        resp = await client.get(
+            f"{SCRAPER_API}/sites/terraform-aws/links",
             headers=get_auth_headers(),
-            json={
-                "url": TERRAFORM_AWS_DOCS_BASE,
-                "selector": TERRAFORM_AWS_DOCS_BASE,  # Used as base URL filter
-                "method": "terraform_links",
-                "timeout": 60000,
-                "wait_until": "domcontentloaded",
-            },
         )
 
         print(f"Response status: {resp.status_code}")
@@ -64,14 +52,11 @@ async def get_terraform_aws_links() -> list[str]:
             print(f"Scrape failed: {data.get('error')}")
             return []
 
-        # The content is a newline-joined string of links
-        content = data.get("content", "")
-        if not content:
+        links = data.get("links", [])
+        if not links:
             print("No content returned")
             return []
 
-        # Split into individual links
-        links = [link.strip() for link in content.split("\n") if link.strip()]
         print(f"Found {len(links)} links")
         return links
 

@@ -3,10 +3,11 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
-from typing_extensions import TypedDict
+from urllib.parse import urlparse
 
 import requests
 from dotenv import load_dotenv
+
 
 def validate_api_url() -> str:
     """Validate API URL and return it with the correct suffix."""
@@ -14,95 +15,91 @@ def validate_api_url() -> str:
     missing = [k for k in required if not os.environ.get(k)]
     if missing:
         raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
-    
+
     env = os.environ.get("ENVIRONMENT", "prod")
     url_suffix = "-dev" if env == "dev" else ""
     return f"https://{os.environ['MODAL_USERNAME']}--content-scraper-api-fastapi-app{url_suffix}.modal.run"
+
 
 def get_headers() -> Dict[str, str]:
     return {
         "Content-Type": "application/json",
         "Modal-Key": os.environ.get("MODAL_KEY"),
-        "Modal-Secret": os.environ.get("MODAL_SECRET")
+        "Modal-Secret": os.environ.get("MODAL_SECRET"),
     }
 
+
 @dataclass
-class PageInfo:
-    """URL and associated selectors for a page."""
-    url: str
-    selectors: Dict[str, str]
-    site_name: str
+class SiteInfo:
+    """Site metadata from local config."""
+    site_id: str
+    name: str
+    base_url: str
 
 
-def load_selectors_data() -> Dict:
-    """Load selectors data from JSON file."""
-    with open(Path(__file__).parent.parent / "data" / "selectors.json") as f:
-        return json.load(f)
+def load_sites_data() -> Dict[str, dict]:
+    """Load site configs from the scraper config JSON."""
+    config_path = Path(__file__).parent.parent / "scraper" / "config" / "sites.json"
+    with open(config_path) as f:
+        data = json.load(f)
+    return data.get("sites", {})
 
 
-SELECTORS_DATA = load_selectors_data()
-
-def get_page_info(site_name: str, page_name: str) -> PageInfo:
-    """Get PageInfo for a specific site and page."""
-    data = load_selectors_data()
-    site = data["sites"].get(site_name)
-    if not site:
-        raise ValueError(f"Site '{site_name}' not found")
-    
-    page_path = site["pages"].get(page_name)
-    if not page_path:
-        raise ValueError(f"Page '{page_name}' not found in site '{site_name}'")
-    
-    return PageInfo(
-        url=site["baseUrl"] + page_path,
-        selectors=site.get("selectors", {}),
-        site_name=site_name
-    )
-
-
-def get_all_pages(sites_list: Optional[List[str]] = None) -> List[PageInfo]:
-    """Get all pages, optionally filtered by site names."""
-    pages = []
-    data = load_selectors_data()
-    for site_name, site in data["sites"].items():
-        if sites_list and site_name not in sites_list:
-            continue
-        selectors = site.get("selectors", {})
-        for page_path in site["pages"].values():
-            pages.append(PageInfo(
-                url=site["baseUrl"] + page_path,
-                selectors=selectors,
-                site_name=site_name
-            ))
-    return pages
-
-
-def get_scrape_requests(sites_list: Optional[List[str]] = None) -> List[Dict[str, str]]:
-    """Get scrape request payloads for pages with copyButton selector."""
-    return [
-        {
-            "url": p.url,
-            "selector": p.selectors["copyButton"],
-            "method": p.selectors.get("method", "click_copy"),
-            "site_name": p.site_name,
-        }
-        for p in get_all_pages(sites_list)
-        if "copyButton" in p.selectors
-    ]
+def get_site_info(site_id: str) -> SiteInfo:
+    """Get site metadata for a given site ID."""
+    sites = load_sites_data()
+    if site_id not in sites:
+        raise ValueError(f"Site '{site_id}' not found")
+    site = sites[site_id]
+    return SiteInfo(site_id=site_id, name=site["name"], base_url=site["baseUrl"])
 
 
 def get_available_sites() -> List[str]:
-    """Get list of all available site names."""
-    data = load_selectors_data()
-    return list(data["sites"].keys())
+    """Get list of all available site IDs."""
+    sites = load_sites_data()
+    return list(sites.keys())
+
+
+def get_site_links(base_url: str, site_id: str) -> List[str]:
+    """Fetch all documentation links for a site from the API."""
+    resp = requests.get(f"{base_url}/sites/{site_id}/links", headers=get_headers())
+    if resp.status_code != 200:
+        raise RuntimeError(f"Failed to fetch links for {site_id}: {resp.text}")
+    data = resp.json()
+    return data.get("links", [])
+
+
+def link_to_path(link: str, base_url: str) -> str:
+    """Convert a full URL to a path relative to the site baseUrl."""
+    if link.startswith(base_url):
+        suffix = link[len(base_url):]
+        if suffix and not suffix.startswith("/"):
+            suffix = "/" + suffix
+        return suffix
+    parsed = urlparse(link)
+    return parsed.path or ""
+
+
+def fetch_content(base_url: str, site_id: str, path: str) -> str:
+    """Fetch content for a given site and path."""
+    resp = requests.get(
+        f"{base_url}/sites/{site_id}/content",
+        headers=get_headers(),
+        params={"path": path},
+    )
+    if resp.status_code != 200:
+        raise RuntimeError(f"Failed to fetch content for {site_id}{path}: {resp.text}")
+    data = resp.json()
+    return data.get("content", "")
 
 
 def batch_scrape(
     sites_list: Optional[List[str]] = None,
     use_cache: bool = True,
     verbose: bool = True,
+    max_pages: Optional[int] = None,
 ) -> Dict[str, Dict[str, str]]:
-    """Scrape all pages and return docs organized by site/page."""
+    """Scrape pages via the new /sites endpoints and return docs by site/path."""
     load_dotenv()
 
     base_url = validate_api_url()
@@ -111,40 +108,35 @@ def batch_scrape(
     if verbose:
         print(f"Using environment: {env}")
         print(f"API URL: {base_url}")
-        print(f"Cache enabled: {use_cache}")
+        if use_cache is not None:
+            print(f"Cache enabled: {use_cache} (not used by /sites endpoints)")
 
-    scrape_requests = get_scrape_requests(sites_list)
+    target_sites = sites_list or get_available_sites()
+    docs: Dict[str, Dict[str, str]] = {}
 
-    if verbose:
-        print("Calling batch scrape endpoint...")
+    for site_id in target_sites:
+        site_info = get_site_info(site_id)
+        if verbose:
+            print(f"\nFetching links for {site_id}...")
 
-    response = requests.post(
-        f"{base_url}/scrape/batch",
-        headers=get_headers(),
-        json={"requests": scrape_requests, "use_cache": use_cache}
-    )
-    
-    result = response.json()
+        links = get_site_links(base_url, site_id)
+        if max_pages is not None:
+            links = links[:max_pages]
 
-    if verbose:
-        print("Response received!")
-        print(f"Total: {result.get('total')} | Success: {result.get('successful')} | Failed: {result.get('failed')} | Cached: {result.get('cached', 0)}")
-        print(f"Processing time: {result.get('total_processing_time_seconds')}s")
-    
-    # Build docs dictionary from results
-    docs = {}
-    for i, res in enumerate(result.get('results', [])):
-        if i < len(scrape_requests):
-            site_name = scrape_requests[i].get('site_name', 'unknown')
-            url = scrape_requests[i].get('url', '')
-            page_name = url.rstrip('/').split('/')[-1] if url else f'page_{i}'
-            content = res.get('content', '')
-            
-            if site_name not in docs:
-                docs[site_name] = {}
-            docs[site_name][page_name] = content
-            
+        if verbose:
+            print(f"Found {len(links)} links for {site_id}")
+
+        for link in links:
+            path = link_to_path(link, site_info.base_url)
+            page_key = path.lstrip("/") or "root"
+            try:
+                content = fetch_content(base_url, site_id, path)
+            except Exception as exc:
+                content = ""
+                if verbose:
+                    print(f"  Failed {site_id}/{page_key}: {exc}")
+            docs.setdefault(site_id, {})[page_key] = content
             if verbose:
-                print(f"  {site_name}/{page_name}: {res.get('processing_time_seconds', 0)}s ({len(content)} chars)")
-    
+                print(f"  {site_id}/{page_key}: {len(content)} chars")
+
     return docs
