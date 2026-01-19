@@ -22,12 +22,16 @@ def get_auth_headers() -> dict:
     return {}
 
 
+# Default timeout for requests
+DEFAULT_TIMEOUT = 15.0
+
+
 class TestRootAndHealth:
     """Test basic API endpoints."""
 
     def test_root_endpoint(self):
         """Test the root endpoint returns API info."""
-        resp = httpx.get(f"{API_BASE}/", headers=get_auth_headers())
+        resp = httpx.get(f"{API_BASE}/", headers=get_auth_headers(), timeout=DEFAULT_TIMEOUT)
         assert resp.status_code == 200
         data = resp.json()
         assert "name" in data
@@ -36,7 +40,7 @@ class TestRootAndHealth:
 
     def test_health_endpoint(self):
         """Test the health endpoint returns healthy status."""
-        resp = httpx.get(f"{API_BASE}/health", headers=get_auth_headers())
+        resp = httpx.get(f"{API_BASE}/health", headers=get_auth_headers(), timeout=DEFAULT_TIMEOUT)
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "healthy"
@@ -47,7 +51,7 @@ class TestSitesEndpoint:
 
     def test_list_sites(self):
         """Test listing all available sites."""
-        resp = httpx.get(f"{API_BASE}/sites", headers=get_auth_headers())
+        resp = httpx.get(f"{API_BASE}/sites", headers=get_auth_headers(), timeout=DEFAULT_TIMEOUT)
         assert resp.status_code == 200
         data = resp.json()
         assert "sites" in data
@@ -143,7 +147,7 @@ def run_manual_tests():
 
     # Test root endpoint
     print("\n1. Testing root endpoint...")
-    resp = httpx.get(f"{API_BASE}/", headers=get_auth_headers())
+    resp = httpx.get(f"{API_BASE}/", headers=get_auth_headers(), timeout=DEFAULT_TIMEOUT)
     print(f"   Status: {resp.status_code}")
     if resp.status_code == 200:
         data = resp.json()
@@ -155,7 +159,7 @@ def run_manual_tests():
 
     # Test health endpoint
     print("\n2. Testing health endpoint...")
-    resp = httpx.get(f"{API_BASE}/health", headers=get_auth_headers())
+    resp = httpx.get(f"{API_BASE}/health", headers=get_auth_headers(), timeout=DEFAULT_TIMEOUT)
     print(f"   Status: {resp.status_code}")
     if resp.status_code == 200:
         print(f"   Health: {resp.json()}")
@@ -165,7 +169,7 @@ def run_manual_tests():
 
     # Test sites endpoint
     print("\n3. Testing sites endpoint...")
-    resp = httpx.get(f"{API_BASE}/sites", headers=get_auth_headers())
+    resp = httpx.get(f"{API_BASE}/sites", headers=get_auth_headers(), timeout=DEFAULT_TIMEOUT)
     print(f"   Status: {resp.status_code}")
     if resp.status_code == 200:
         data = resp.json()
