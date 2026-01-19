@@ -1,4 +1,4 @@
-"""Test script for extracting all Terraform AWS provider doc links via Modal API."""
+"""Test script for extracting all Convex doc links via Modal API."""
 
 import asyncio
 import json
@@ -11,10 +11,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 SCRAPER_API = "https://tangentleman--content-scraper-api-fastapi-app-dev.modal.run"
-TERRAFORM_AWS_DOCS_BASE = "https://registry.terraform.io/providers/hashicorp/aws/latest/docs"
+CONVEX_DOCS_BASE = "https://docs.convex.dev"
 
 ROOT_DIR = Path(__file__).parent.parent
-OUTPUT_PATH = ROOT_DIR / "data" / "terraform_aws_links.json"
+OUTPUT_PATH = ROOT_DIR / "data" / "convex_links.json"
 
 
 def get_auth_headers() -> dict:
@@ -26,16 +26,14 @@ def get_auth_headers() -> dict:
     return {}
 
 
-async def get_terraform_aws_links() -> list[str]:
-    """
-    Extract all documentation links from Terraform AWS Provider docs via Modal API.
-    """
+async def get_convex_links() -> list[str]:
+    """Extract all documentation links from Convex docs via Modal API."""
     print(f"Calling Modal API: {SCRAPER_API}")
-    print(f"Target URL: {TERRAFORM_AWS_DOCS_BASE}")
+    print(f"Target URL: {CONVEX_DOCS_BASE}")
 
     async with httpx.AsyncClient(timeout=120.0) as client:
         resp = await client.get(
-            f"{SCRAPER_API}/sites/terraform-aws/links",
+            f"{SCRAPER_API}/sites/convex/links",
             headers=get_auth_headers(),
         )
 
@@ -59,22 +57,20 @@ async def get_terraform_aws_links() -> list[str]:
         return links
 
 
-def main():
+def main() -> int:
     print("=" * 60)
-    print("Extracting Terraform AWS Provider Doc Links via Modal API")
+    print("Extracting Convex Doc Links via Modal API")
     print("=" * 60)
     print()
 
-    links = asyncio.run(get_terraform_aws_links())
+    links = asyncio.run(get_convex_links())
 
     if links:
-        # Save to JSON
         OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(OUTPUT_PATH, "w") as f:
-            json.dump({"terraform_aws_links": links}, f, indent=2)
+            json.dump({"convex_links": links}, f, indent=2)
         print(f"\nSaved {len(links)} links to {OUTPUT_PATH}")
 
-        # Preview first 20 links
         print("\n--- First 20 links ---")
         for link in links[:20]:
             print(f"  {link}")
@@ -88,4 +84,5 @@ def main():
 
 
 if __name__ == "__main__":
-    exit(main())
+    raise SystemExit(main())
+

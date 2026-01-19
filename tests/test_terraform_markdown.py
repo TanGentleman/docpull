@@ -126,14 +126,14 @@ async def scrape_terraform_docs():
             return False
 
         data = resp.json()
-        print(f"Success: {data.get('success')}")
-
-        if not data.get("success"):
-            print(f"Scrape failed: {data.get('error')}")
-            return False
-
         html_content = data.get("content", "")
-        print(f"HTML content length: {len(html_content)} chars")
+        content_length = data.get("content_length", len(html_content))
+        from_cache = data.get("from_cache", False)
+        site_id = data.get("site_id")
+        print(
+            f"Site: {site_id}, HTML length: {content_length} chars, "
+            f"from_cache={from_cache}"
+        )
 
         if not html_content:
             print("No content returned")
