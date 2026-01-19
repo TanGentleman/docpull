@@ -42,12 +42,16 @@
       "links": {
         "startUrls": [""],
         "pattern": "registry.terraform.io/providers/hashicorp/aws/latest/docs",
-        "waitFor": "#provider-docs-content"
+        "waitFor": "#provider-docs-content",
+        "waitUntil": "domcontentloaded",
+        "gotoTimeoutMs": 30000
       },
       "content": {
         "waitFor": "#provider-docs-content",
         "selector": "#provider-docs-content",
-        "method": "inner_html"
+        "method": "inner_html",
+        "waitUntil": "domcontentloaded",
+        "goToTimeoutMs": 30000
       }
     },
     "cursor": {

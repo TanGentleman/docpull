@@ -148,8 +148,13 @@ class Scraper:
         method = content_config.get("method", "inner_html")
         selector = content_config.get("selector")
         wait_for = content_config.get("waitFor")
+        wait_until = content_config.get("waitUntil", "networkidle")
+        goto_timeout = content_config.get("gotoTimeoutMs", 60000)
 
-        print(f"[scrape_content] url={url}, method={method}, selector={selector}")
+        print(
+            f"[scrape_content] url={url}, method={method}, selector={selector}, "
+            f"wait_until={wait_until}, goto_timeout={goto_timeout}"
+        )
 
         # Determine permissions based on extraction method
         permissions = []
@@ -161,7 +166,7 @@ class Scraper:
 
         try:
             print(f"[scrape_content] Navigating to {url}...")
-            page.goto(url, wait_until="networkidle", timeout=60000)
+            page.goto(url, wait_until=wait_until, timeout=goto_timeout)
             print(f"[scrape_content] Page loaded")
 
             # Handle site-specific setup (cookie consent, etc.)
@@ -207,9 +212,14 @@ class Scraper:
         links_config = config.get("links", {})
         start_urls = links_config.get("startUrls", [""])
         wait_for = links_config.get("waitFor")
+        wait_until = links_config.get("waitUntil", "networkidle")
+        goto_timeout = links_config.get("gotoTimeoutMs", 60000)
         pattern = links_config.get("pattern", "")
 
-        print(f"[scrape_links_browser] base_url={base_url}, pattern={pattern}, wait_for={wait_for}")
+        print(
+            f"[scrape_links_browser] base_url={base_url}, pattern={pattern}, "
+            f"wait_for={wait_for}, wait_until={wait_until}, goto_timeout={goto_timeout}"
+        )
 
         context = self.browser.new_context()
         page = context.new_page()
@@ -219,7 +229,7 @@ class Scraper:
             start_url = base_url + (start_urls[0] if start_urls else "")
 
             print(f"[scrape_links_browser] Navigating to {start_url}...")
-            page.goto(start_url, wait_until="networkidle", timeout=60000)
+            page.goto(start_url, wait_until=wait_until, timeout=goto_timeout)
             print(f"[scrape_links_browser] Page loaded")
 
             # Handle site-specific setup
