@@ -2,18 +2,22 @@
 # deploy: true
 # ---
 
-# Content Scraper API - Stateless scraping with Convex storage
+# Content Scraper API - Modal-native with Dict caching and browser lifecycle
 
+import asyncio
+import json
+import re
 import time
+from pathlib import Path
+from urllib.parse import urljoin, urlparse
 
 import modal
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
-from scraper import ScrapeJob, scrape, scrape_links, scrape_content, list_sites
-
+# Modal image with Playwright
 playwright_image = (
-    modal.Image.debian_slim(python_version="3.10")
+    modal.Image.debian_slim(python_version="3.11")
     .run_commands(
         "apt-get update",
         "apt-get install -y software-properties-common",
@@ -23,40 +27,37 @@ playwright_image = (
         "playwright install-deps chromium",
         "playwright install chromium",
     )
-    .uv_pip_install("fastapi[standard]", "pydantic", "requests", "httpx")
-    .add_local_python_source("scraper")
-    .add_local_dir("scraper/config", remote_path="/root/scraper/config")
+    .pip_install("fastapi[standard]", "pydantic", "httpx")
+    .add_local_file("scraper/config/sites.json", "/root/sites.json")
 )
 
 app = modal.App("content-scraper-api", image=playwright_image)
-web_app = FastAPI(title="Content Scraper API")
 
-CONVEX_API = "https://tangentleman--convex-api-fastapi-app-dev.modal.run"
+# Modal Dict for caching (7-day TTL built-in)
+cache = modal.Dict.from_name("scraper-cache", create_if_missing=True)
+
 DEFAULT_MAX_AGE = 3600  # 1 hour
 
 
-class ScrapeRequest(BaseModel):
-    url: str
-    selector: str
-    method: str = "click_copy"
-    timeout: int = 30000
-    wait_until: str = "networkidle"
+# --- Load sites config ---
+def load_sites_config() -> dict:
+    """Load sites configuration from embedded JSON file."""
+    config_path = Path("/root/sites.json")
+    if not config_path.exists():
+        # Fallback to local path during development
+        config_path = Path(__file__).parent / "scraper" / "config" / "sites.json"
+    with open(config_path) as f:
+        return json.load(f)["sites"]
 
 
-class TaskResponse(BaseModel):
-    task_id: str
+# --- Response Models ---
+class ContentResponse(BaseModel):
     site_id: str
-    page: str
-
-
-class DocResponse(BaseModel):
-    site_id: str
-    page: str
-    url: str
-    markdown: str
+    path: str
+    content: str
     content_length: int
-    updated_at: int
-    from_cache: bool
+    url: str
+    from_cache: bool = False
 
 
 class LinksResponse(BaseModel):
@@ -65,139 +66,314 @@ class LinksResponse(BaseModel):
     count: int
 
 
-class ContentResponse(BaseModel):
-    site_id: str
-    path: str
-    content: str
-    content_length: int
+# --- Helper functions ---
+def clean_url(url: str) -> str:
+    """Remove query params and fragments from URL."""
+    return url.split("?")[0].split("#")[0].rstrip("/")
 
 
-# --- Helper: Check doc freshness ---
+def extract_links_from_html(html: str, base_url: str, pattern: str) -> list[str]:
+    """Extract links from HTML string using regex."""
+    links = set()
+    for match in re.finditer(r'href="([^"]*)"', html):
+        link = match.group(1)
+        link = clean_url(link)
+
+        # Resolve relative URLs
+        if link.startswith("/"):
+            parsed = urlparse(base_url)
+            link = f"{parsed.scheme}://{parsed.netloc}{link}"
+        elif not link.startswith("http"):
+            link = urljoin(base_url, link)
+
+        # Filter by pattern
+        if pattern and pattern not in link:
+            continue
+
+        # Only include links from same domain
+        if urlparse(link).netloc == urlparse(base_url).netloc:
+            links.add(link)
+
+    return sorted(links)
 
 
-def get_cached_doc(site_id: str, page: str, max_age: int) -> dict | None:
+# --- Browser-based Scraper with Lifecycle ---
+@app.cls(timeout=300, retries=2)
+class Scraper:
+    """Browser-based scraper with lifecycle management.
+
+    Uses @modal.enter() to launch browser once per container,
+    reusing it across all requests for performance.
     """
-    Get doc from Convex if it exists and is fresh enough.
-    Returns None if doc doesn't exist or is stale.
-    """
-    import requests
 
-    resp = requests.get(f"{CONVEX_API}/sites/{site_id}/docs/{page}")
-    if resp.status_code != 200:
-        return None
+    @modal.enter()
+    def start_browser(self):
+        """Launch browser once when container starts."""
+        from playwright.sync_api import sync_playwright
 
-    doc = resp.json()
-    updated_at = doc.get("updatedAt", 0)
-    age_seconds = (time.time() * 1000 - updated_at) / 1000
+        self.pw = sync_playwright().start()
+        self.browser = self.pw.chromium.launch()
+        print("Browser started")
 
-    if age_seconds > max_age:
-        return None
+    @modal.exit()
+    def close_browser(self):
+        """Clean up browser when container exits."""
+        self.browser.close()
+        self.pw.stop()
+        print("Browser closed")
 
-    return doc
+    def _dismiss_cookie_banner(self, page, site_config: dict):
+        """Handle cookie consent banners for specific sites."""
+        extractor = site_config.get("extractor", "default")
+        if extractor == "terraform":
+            try:
+                btn = page.get_by_role("button", name="Accept All")
+                btn.click(timeout=3000)
+                page.wait_for_timeout(1000)
+            except Exception:
+                pass  # Banner may not exist
+
+    @modal.method()
+    def scrape_content(self, site_id: str, path: str) -> dict:
+        """Scrape content from a page using browser."""
+        print(f"[scrape_content] site_id={site_id}, path={path}")
+        sites_config = load_sites_config()
+        config = sites_config.get(site_id)
+        if not config:
+            print(f"[scrape_content] ERROR: Unknown site: {site_id}")
+            return {"success": False, "error": f"Unknown site: {site_id}"}
+
+        url = config["baseUrl"] + path
+        content_config = config.get("content", {})
+        method = content_config.get("method", "inner_html")
+        selector = content_config.get("selector")
+        wait_for = content_config.get("waitFor")
+
+        print(f"[scrape_content] url={url}, method={method}, selector={selector}")
+
+        # Determine permissions based on extraction method
+        permissions = []
+        if method == "click_copy":
+            permissions = ["clipboard-read", "clipboard-write"]
+
+        context = self.browser.new_context(permissions=permissions)
+        page = context.new_page()
+
+        try:
+            print(f"[scrape_content] Navigating to {url}...")
+            page.goto(url, wait_until="networkidle", timeout=60000)
+            print(f"[scrape_content] Page loaded")
+
+            # Handle site-specific setup (cookie consent, etc.)
+            self._dismiss_cookie_banner(page, config)
+
+            # Wait for content to be ready
+            if wait_for:
+                print(f"[scrape_content] Waiting for selector: {wait_for}")
+                page.wait_for_selector(wait_for, state="visible", timeout=30000)
+                page.wait_for_timeout(500)
+
+            # Extract content based on method
+            if method == "click_copy":
+                print(f"[scrape_content] Clicking copy button: {selector}")
+                page.click(selector)
+                page.wait_for_timeout(1000)
+                content = page.evaluate("() => navigator.clipboard.readText()")
+            else:  # inner_html
+                print(f"[scrape_content] Extracting innerHTML: {selector}")
+                element = page.query_selector(selector)
+                content = element.inner_html() if element else ""
+
+            print(f"[scrape_content] SUCCESS: extracted {len(content)} chars")
+            return {"success": True, "content": content, "url": url}
+
+        except Exception as e:
+            print(f"[scrape_content] ERROR: {e}")
+            return {"success": False, "error": str(e), "url": url}
+        finally:
+            context.close()
+
+    @modal.method()
+    def scrape_links_browser(self, site_id: str) -> dict:
+        """Scrape links from a site using browser (for JS-heavy SPAs)."""
+        print(f"[scrape_links_browser] site_id={site_id}")
+        sites_config = load_sites_config()
+        config = sites_config.get(site_id)
+        if not config:
+            print(f"[scrape_links_browser] ERROR: Unknown site: {site_id}")
+            return {"success": False, "error": f"Unknown site: {site_id}"}
+
+        base_url = config["baseUrl"]
+        links_config = config.get("links", {})
+        start_urls = links_config.get("startUrls", [""])
+        wait_for = links_config.get("waitFor")
+        pattern = links_config.get("pattern", "")
+
+        print(f"[scrape_links_browser] base_url={base_url}, pattern={pattern}, wait_for={wait_for}")
+
+        context = self.browser.new_context()
+        page = context.new_page()
+
+        try:
+            all_links = set()
+            start_url = base_url + (start_urls[0] if start_urls else "")
+
+            print(f"[scrape_links_browser] Navigating to {start_url}...")
+            page.goto(start_url, wait_until="networkidle", timeout=60000)
+            print(f"[scrape_links_browser] Page loaded")
+
+            # Handle site-specific setup
+            self._dismiss_cookie_banner(page, config)
+
+            # Wait for content
+            if wait_for:
+                print(f"[scrape_links_browser] Waiting for selector: {wait_for}")
+                page.wait_for_selector(wait_for, state="visible", timeout=30000)
+                page.wait_for_timeout(2000)
+
+            # Extract all links
+            print(f"[scrape_links_browser] Extracting links...")
+            raw_links = page.eval_on_selector_all(
+                "a[href]", "elements => elements.map(e => e.href)"
+            )
+            print(f"[scrape_links_browser] Found {len(raw_links)} raw links")
+
+            for link in raw_links:
+                clean = clean_url(link)
+                if pattern and pattern not in clean:
+                    continue
+                if clean.startswith(base_url) or urlparse(clean).netloc == urlparse(base_url).netloc:
+                    all_links.add(clean)
+
+            print(f"[scrape_links_browser] SUCCESS: {len(all_links)} links after filtering")
+            return {"success": True, "links": sorted(all_links)}
+
+        except Exception as e:
+            print(f"[scrape_links_browser] ERROR: {e}")
+            return {"success": False, "error": str(e)}
+        finally:
+            context.close()
 
 
-# --- Spawnable scrape task ---
-
-
+# --- HTTP-based Link Discovery ---
 @app.function(timeout=300)
-async def scrape_and_save(site_id: str, page: str) -> dict:
-    """Scrape a page and save to Convex."""
-    import requests
+async def scrape_links_fetch(site_id: str) -> dict:
+    """Scrape links using HTTP fetch (for static sites)."""
+    import httpx
 
-    resp = requests.get(f"{CONVEX_API}/sites/{site_id}")
-    if resp.status_code != 200:
-        return {"success": False, "error": f"Site not found: {site_id}"}
+    sites_config = load_sites_config()
+    config = sites_config.get(site_id)
+    if not config:
+        return {"success": False, "error": f"Unknown site: {site_id}"}
 
-    site = resp.json()
-    page_path = site.get("pages", {}).get(page)
-    if not page_path:
-        return {"success": False, "error": f"Page '{page}' not in site config"}
+    base_url = config["baseUrl"]
+    links_config = config.get("links", {})
+    start_urls = [
+        base_url + path if path else base_url for path in links_config.get("startUrls", [""])
+    ]
+    max_depth = links_config.get("maxDepth", 2)
+    pattern = links_config.get("pattern", "")
 
-    url = site["baseUrl"] + page_path
-    job = ScrapeJob(
-        name=page,
-        url=url,
-        selector=site["selector"],
-        method=site.get("method", "click_copy"),
-    )
+    all_links: set[str] = set()
+    visited: set[str] = set()
+    to_visit = [(url, 0) for url in start_urls]
 
-    result = await scrape(job)
-    if not result.success:
-        return {"success": False, "error": result.error, "url": url}
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        while to_visit:
+            # Process in batches of 10
+            batch = []
+            while to_visit and len(batch) < 10:
+                url, depth = to_visit.pop(0)
+                if url not in visited and depth <= max_depth:
+                    visited.add(url)
+                    batch.append((url, depth))
 
-    content = "\n".join(str(e) for e in result.entries) if result.entries else ""
+            if not batch:
+                continue
 
-    save_resp = requests.post(
-        f"{CONVEX_API}/sites/{site_id}/docs/save",
-        json={"siteId": site_id, "page": page, "url": url, "markdown": content},
-    )
+            # Fetch all URLs in batch concurrently
+            async def fetch_one(url: str) -> str:
+                try:
+                    resp = await client.get(url)
+                    resp.raise_for_status()
+                    return resp.text
+                except Exception as e:
+                    print(f"Error fetching {url}: {e}")
+                    return ""
 
-    if save_resp.status_code != 200:
-        return {"success": False, "error": f"Failed to save: {save_resp.text}"}
+            tasks = [fetch_one(url) for url, _ in batch]
+            results = await asyncio.gather(*tasks)
 
-    save_data = save_resp.json()
-    return {
-        "success": True,
-        "site_id": site_id,
-        "page": page,
-        "url": url,
-        "markdown": content,
-        "content_length": len(content),
-        "content_hash": save_data.get("contentHash"),
-        "updated_at": save_data.get("updatedAt"),
-    }
+            for (url, depth), html in zip(batch, results):
+                if not html:
+                    continue
+
+                # Extract links from HTML
+                links = extract_links_from_html(html, base_url, pattern)
+
+                for link in links:
+                    all_links.add(link)
+                    if depth < max_depth and link not in visited:
+                        to_visit.append((link, depth + 1))
+
+    print(f"Found {len(all_links)} links for {site_id}")
+    return {"success": True, "links": sorted(all_links)}
 
 
-# --- API Endpoints ---
+# --- FastAPI Web App ---
+web_app = FastAPI(title="Content Scraper API")
 
 
 @web_app.get("/")
 async def root():
+    """API root with endpoint documentation."""
     return {
         "name": "Content Scraper API",
-        "version": "4.0",
-        "convex_api": CONVEX_API,
+        "version": "5.0",
+        "storage": "Modal Dict (7-day TTL)",
         "endpoints": {
-            # New API
             "/sites": "GET - List available site IDs",
             "/sites/{site_id}/links": "GET - Get all doc links for a site",
-            "/sites/{site_id}/content": "GET - Get content from a page",
-            # Legacy API
-            "/docs/{site_id}/{page}": "GET - Get doc (cached or fresh scrape)",
-            "/docs/{site_id}/{page}/spawn": "POST - Spawn background scrape, return task_id",
-            "/scrape": "POST - Scrape any URL (stateless)",
-            "/scrape/{site_id}/{page}": "POST - Force scrape & save",
-            "/scrape/{site_id}": "POST - Scrape all pages for a site",
-            "/task/{task_id}": "GET - Check task status",
+            "/sites/{site_id}/content": "GET - Get content from a page (cached or fresh)",
         },
     }
 
 
 @web_app.get("/health")
 async def health():
+    """Health check endpoint."""
     return {"status": "healthy"}
-
-
-# --- New API Endpoints ---
 
 
 @web_app.get("/sites")
 async def get_sites():
     """List all available site IDs."""
-    sites = list_sites()
-    return {"sites": sites, "count": len(sites)}
+    sites_config = load_sites_config()
+    return {"sites": list(sites_config.keys()), "count": len(sites_config)}
 
 
 @web_app.get("/sites/{site_id}/links")
 async def get_site_links(site_id: str) -> LinksResponse:
     """Get all documentation links for a site."""
-    result = await scrape_links(site_id)
-    if not result.success:
-        raise HTTPException(status_code=500, detail=result.error)
+    sites_config = load_sites_config()
+    config = sites_config.get(site_id)
+    if not config:
+        raise HTTPException(status_code=404, detail=f"Unknown site: {site_id}")
+
+    # Use browser mode for JS-heavy sites, fetch mode for static sites
+    if config.get("mode") == "browser":
+        scraper = Scraper()
+        result = scraper.scrape_links_browser.remote(site_id)
+    else:
+        result = await scrape_links_fetch.remote.aio(site_id)
+
+    if not result["success"]:
+        raise HTTPException(status_code=500, detail=result.get("error"))
+
     return LinksResponse(
         site_id=site_id,
-        links=result.data,
-        count=len(result.data),
+        links=result["links"],
+        count=len(result["links"]),
     )
 
 
@@ -205,171 +381,64 @@ async def get_site_links(site_id: str) -> LinksResponse:
 async def get_site_content(
     site_id: str,
     path: str = Query(default="", description="Page path relative to baseUrl"),
-) -> ContentResponse:
-    """Get content from a specific page."""
-    result = await scrape_content(site_id, path)
-    if not result.success:
-        raise HTTPException(status_code=500, detail=result.error)
-    content = "\n".join(result.data)
-    return ContentResponse(
-        site_id=site_id,
-        path=path,
-        content=content,
-        content_length=len(content),
-    )
-
-
-# --- Legacy API Endpoints ---
-
-
-@web_app.get("/docs/{site_id}/{page}")
-async def get_doc(
-    site_id: str,
-    page: str,
     max_age: int = Query(default=DEFAULT_MAX_AGE, description="Max cache age in seconds"),
-):
-    """
-    Get documentation. Returns cached version if fresh, otherwise scrapes.
+) -> ContentResponse:
+    """Get content from a specific page.
 
-    - max_age=0: Always scrape fresh
-    - max_age=3600: Use cache if updated within 1 hour (default)
-    - max_age=86400: Use cache if updated within 24 hours
+    Returns cached version if fresh, otherwise scrapes fresh content.
     """
-    cached = get_cached_doc(site_id, page, max_age)
-    if cached:
-        return DocResponse(
-            site_id=site_id,
-            page=page,
-            url=cached["url"],
-            markdown=cached["markdown"],
-            content_length=len(cached["markdown"]),
-            updated_at=cached["updatedAt"],
-            from_cache=True,
-        )
+    sites_config = load_sites_config()
+    config = sites_config.get(site_id)
+    if not config:
+        raise HTTPException(status_code=404, detail=f"Unknown site: {site_id}")
 
-    result = await scrape_and_save.local(site_id, page)
+    cache_key = f"{site_id}:{path}"
+    url = config["baseUrl"] + path
+
+    # Check cache first
+    try:
+        cached = cache[cache_key]
+        if cached:
+            age = time.time() - cached["timestamp"]
+            if age < max_age:
+                return ContentResponse(
+                    site_id=site_id,
+                    path=path,
+                    content=cached["content"],
+                    content_length=len(cached["content"]),
+                    url=cached["url"],
+                    from_cache=True,
+                )
+    except KeyError:
+        pass  # Not in cache
+
+    # Scrape fresh content
+    scraper = Scraper()
+    result = scraper.scrape_content.remote(site_id, path)
+
     if not result["success"]:
         raise HTTPException(status_code=500, detail=result.get("error"))
 
-    return DocResponse(
+    # Save to cache
+    cache[cache_key] = {
+        "content": result["content"],
+        "url": result["url"],
+        "timestamp": time.time(),
+    }
+
+    return ContentResponse(
         site_id=site_id,
-        page=page,
+        path=path,
+        content=result["content"],
+        content_length=len(result["content"]),
         url=result["url"],
-        markdown=result["markdown"],
-        content_length=result["content_length"],
-        updated_at=result["updated_at"],
         from_cache=False,
     )
 
 
-@web_app.post("/docs/{site_id}/{page}/spawn")
-async def spawn_doc_refresh(
-    site_id: str,
-    page: str,
-    max_age: int = Query(default=DEFAULT_MAX_AGE, description="Max cache age in seconds"),
-):
-    """
-    Get doc if cached, otherwise spawn background scrape and return task_id.
-
-    Returns either:
-    - {"cached": true, "doc": DocResponse} if fresh cache exists
-    - {"cached": false, "task": TaskResponse} if scrape was spawned
-    """
-    cached = get_cached_doc(site_id, page, max_age)
-    if cached:
-        return {
-            "cached": True,
-            "doc": DocResponse(
-                site_id=site_id,
-                page=page,
-                url=cached["url"],
-                markdown=cached["markdown"],
-                content_length=len(cached["markdown"]),
-                updated_at=cached["updatedAt"],
-                from_cache=True,
-            ),
-        }
-
-    call = scrape_and_save.spawn(site_id, page)
-    return {
-        "cached": False,
-        "task": TaskResponse(task_id=call.object_id, site_id=site_id, page=page),
-    }
-
-
-@web_app.post("/scrape")
-async def scrape_url(req: ScrapeRequest):
-    """Scrape any URL (stateless, no storage)."""
-    job = ScrapeJob(
-        name="adhoc",
-        url=req.url,
-        selector=req.selector,
-        method=req.method,
-        timeout=req.timeout,
-        wait_until=req.wait_until,
-    )
-    result = await scrape(job)
-    content = "\n".join(str(e) for e in result.entries) if result.entries else ""
-    return {
-        "success": result.success,
-        "content": content,
-        "content_length": len(content),
-        "url": result.url,
-        "error": result.error,
-    }
-
-
-@web_app.post("/scrape/{site_id}/{page}")
-async def scrape_page(site_id: str, page: str):
-    """Force scrape a page and save to Convex (ignores cache)."""
-    result = await scrape_and_save.local(site_id, page)
-    if not result["success"]:
-        raise HTTPException(status_code=500, detail=result.get("error"))
-    return result
-
-
-@web_app.post("/scrape/{site_id}")
-async def scrape_site(site_id: str, pages: list[str] = Query(default=None)):
-    """Scrape all (or specified) pages for a site."""
-    import requests
-
-    resp = requests.get(f"{CONVEX_API}/sites/{site_id}")
-    if resp.status_code != 200:
-        raise HTTPException(status_code=404, detail=f"Site not found: {site_id}")
-
-    site = resp.json()
-    target_pages = pages or list(site.get("pages", {}).keys())
-
-    results = []
-    for page in target_pages:
-        result = await scrape_and_save.local(site_id, page)
-        results.append(result)
-
-    return {
-        "site_id": site_id,
-        "results": results,
-        "total": len(results),
-        "successful": sum(1 for r in results if r.get("success")),
-        "failed": sum(1 for r in results if not r.get("success")),
-    }
-
-
-@web_app.get("/task/{task_id}")
-async def get_task_status(task_id: str):
-    """Check status of a spawned task."""
-    from modal.functions import FunctionCall
-
-    call = FunctionCall.from_id(task_id)
-    try:
-        result = call.get(timeout=0)
-        return {"status": "completed", "result": result}
-    except TimeoutError:
-        return {"status": "running", "task_id": task_id}
-    except Exception as e:
-        return {"status": "failed", "error": str(e)}
-
-
 @app.function()
-@modal.asgi_app(requires_proxy_auth=True)
+@modal.concurrent(max_inputs=100)
+@modal.asgi_app()
 def fastapi_app():
+    """FastAPI app with concurrent request handling."""
     return web_app
