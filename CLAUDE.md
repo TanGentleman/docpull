@@ -23,13 +23,7 @@ uv sync
 
 ### Deployment
 ```bash
-# Deploy to production
-modal deploy <filename>.py
-
-# Deploy to development environment
-modal deploy <filename>.py --env dev
-
-# Local development server
+# Assume the hot-reloading dev server is active du during development
 modal serve <filename>.py
 ```
 
