@@ -30,7 +30,6 @@ Output saved to `./docs/<site>/<path>.md`
     "name": "New Site",
     "baseUrl": "https://docs.example.com",
     "mode": "fetch",
-    "extractor": "default",
     "links": {
       "startUrls": [""],
       "pattern": "docs.example.com",
@@ -45,14 +44,13 @@ Output saved to `./docs/<site>/<path>.md`
 }
 ```
 
-2. If custom logic needed, create `scraper/extractors/new_site.py` and import in `scraper/extractors/__init__.py`
+2. If custom logic is needed, add it in `content-scraper-api.py`.
 
 ## Key Files
 
 - `docpull.py` - CLI client
 - `content-scraper-api.py` - Modal API (deploy this)
 - `scraper/config/sites.json` - Site definitions
-- `scraper/extractors/` - Site-specific scraping logic
 
 ## Commands
 
