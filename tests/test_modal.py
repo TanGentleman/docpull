@@ -67,23 +67,20 @@ class TestSitesEndpoint:
 class TestLinksEndpoint:
     """Test the /sites/{site_id}/links endpoint."""
 
-    def test_get_modal_links(self):
-        """Test getting links for the modal site."""
+    @pytest.mark.parametrize("site_id", ["modal", "convex", "terraform-aws"])
+    def test_get_site_links(self, site_id):
+        """Test getting links for supported sites."""
         resp = httpx.get(
-            f"{API_BASE}/sites/modal/links",
+            f"{API_BASE}/sites/{site_id}/links",
             headers=get_auth_headers(),
-            timeout=120.0,
+            timeout=180.0,
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["site_id"] == "modal"
-        assert "links" in data
-        assert "count" in data
-        assert isinstance(data["links"], list)
+        assert data["site_id"] == site_id
+        assert data["count"] == len(data["links"])
         assert len(data["links"]) > 0
-        # Verify links are valid URLs
-        for link in data["links"][:5]:  # Check first 5 links
-            assert link.startswith("http"), f"Invalid link: {link}"
+        assert all(link.startswith("http") for link in data["links"][:5])
 
     def test_get_invalid_site_links(self):
         """Test that invalid site returns an error."""
@@ -98,33 +95,25 @@ class TestLinksEndpoint:
 class TestContentEndpoint:
     """Test the /sites/{site_id}/content endpoint."""
 
-    def test_get_modal_content(self):
-        """Test getting content from a modal docs page."""
+    @pytest.mark.parametrize("site_id,path", [
+        ("modal", "/guide"),
+        ("convex", "/functions"),
+        ("terraform-aws", ""),
+    ])
+    def test_get_site_content(self, site_id, path):
+        """Test getting content from supported sites."""
         resp = httpx.get(
-            f"{API_BASE}/sites/modal/content",
-            params={"path": "/guide"},
+            f"{API_BASE}/sites/{site_id}/content",
+            params={"path": path},
             headers=get_auth_headers(),
-            timeout=120.0,
+            timeout=180.0,
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["site_id"] == "modal"
-        assert data["path"] == "/guide"
-        assert "content" in data
-        assert "content_length" in data
+        assert data["site_id"] == site_id
+        assert data["path"] == path
         assert data["content_length"] == len(data["content"])
-        assert len(data["content"]) > 0
-
-    def test_get_content_empty_path(self):
-        """Test getting content from root path."""
-        resp = httpx.get(
-            f"{API_BASE}/sites/modal/content",
-            params={"path": ""},
-            headers=get_auth_headers(),
-            timeout=120.0,
-        )
-        # This should either succeed or return an error, but not crash
-        assert resp.status_code in [200, 500]
+        assert data["content_length"] > 0
 
     def test_get_invalid_site_content(self):
         """Test that invalid site returns an error."""
