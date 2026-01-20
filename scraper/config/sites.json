@@ -90,13 +90,14 @@
     },
     "unsloth": {
       "name": "Unsloth",
-      "baseUrl": "https://docs.unsloth.ai",
+      "baseUrl": "https://unsloth.ai/docs",
       "mode": "fetch",
       "extractor": "unsloth",
       "links": {
-        "startUrls": ["", "/basics", "/tutorials", "/models"],
-        "pattern": "docs.unsloth",
-        "maxDepth": 2
+        "startUrls": [""],
+        "pattern": "/docs/",
+        "maxDepth": 1,
+        "gotoTimeoutMs": 15000
       },
       "content": {
         "mode": "browser",
