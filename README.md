@@ -48,20 +48,7 @@ Content is saved to `./docs/<site>/` with paths converted to filenames:
 - `/guide/gpu` → `guide_gpu.md`
 - `/resources/aws_instance` → `resources_aws_instance.md`
 
-## Scraper Module
-
-A modular scraper with support for multiple documentation sites.
-
-### CLI
-
-```bash
-python -m scraper sites                              # List all available sites
-python -m scraper links terraform-aws                # Get all doc links
-python -m scraper content terraform-aws /resources/aws_instance
-python -m scraper info modal                         # Show site configuration
-```
-
-### Supported Sites
+## Supported Sites
 
 | Site | Mode | Description |
 |------|------|-------------|
@@ -71,21 +58,6 @@ python -m scraper info modal                         # Show site configuration
 | `cursor` | fetch | Cursor documentation |
 | `claude-code` | fetch | Claude Code documentation |
 | `unsloth` | fetch | Unsloth documentation |
-
-### Python API
-
-```python
-from scraper import scrape_links, scrape_content, list_sites
-
-# List available sites
-sites = list_sites()
-
-# Get all links for a site
-result = await scrape_links("terraform-aws")
-
-# Get content from a specific page
-result = await scrape_content("modal", "/guide")
-```
 
 ## REST API
 
@@ -112,4 +84,4 @@ There's a workflow for batch scraping that saves results to `docs/`.
 
 ## Architecture
 
-See [docs/SCRAPER_REFACTOR_PLAN.md](docs/SCRAPER_REFACTOR_PLAN.md) for detailed architecture documentation.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed architecture documentation.
