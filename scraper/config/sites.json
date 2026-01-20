@@ -63,8 +63,8 @@
       "links": {
         "startUrls": ["", "/get-started", "/tab", "/chat", "/agent", "/context", "/settings"],
         "pattern": "/docs/",
-        "waitUntil": "domcontentloaded",
-        "gotoTimeoutMs": 30000
+        "waitUntil": "networkidle",
+        "gotoTimeoutMs": 60000
       },
       "content": {
         "mode": "browser",
