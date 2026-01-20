@@ -57,13 +57,14 @@
     },
     "cursor": {
       "name": "Cursor",
-      "baseUrl": "https://docs.cursor.com",
-      "mode": "fetch",
+      "baseUrl": "https://cursor.com/docs",
+      "mode": "browser",
       "extractor": "cursor",
       "links": {
         "startUrls": ["", "/get-started", "/tab", "/chat", "/agent", "/context", "/settings"],
-        "pattern": "docs.cursor",
-        "maxDepth": 2
+        "pattern": "/docs/",
+        "waitUntil": "domcontentloaded",
+        "gotoTimeoutMs": 30000
       },
       "content": {
         "mode": "browser",
