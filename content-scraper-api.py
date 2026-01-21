@@ -187,9 +187,9 @@ class Scraper:
         method = content_config.get("method", "inner_html")
         selector = content_config.get("selector")
         wait_for = content_config.get("waitFor")
-        wait_for_timeout = content_config.get("waitForTimeoutMs", 10000)
-        wait_until = content_config.get("waitUntil", "networkidle")
-        goto_timeout = content_config.get("gotoTimeoutMs", 10000)
+        wait_for_timeout = content_config.get("waitForTimeoutMs", 15000)
+        wait_until = content_config.get("waitUntil", "domcontentloaded")
+        goto_timeout = content_config.get("gotoTimeoutMs", 30000)
 
         print(
             f"[scrape_content] url={url}, method={method}, selector={selector}, "
@@ -275,9 +275,9 @@ class Scraper:
         links_config = config.get("links", {})
         start_urls = links_config.get("startUrls", [""])
         wait_for = links_config.get("waitFor")
-        wait_for_timeout = links_config.get("waitForTimeoutMs", 10000)
-        wait_until = links_config.get("waitUntil", "networkidle")
-        goto_timeout = links_config.get("gotoTimeoutMs", 10000)
+        wait_for_timeout = links_config.get("waitForTimeoutMs", 15000)
+        wait_until = links_config.get("waitUntil", "domcontentloaded")
+        goto_timeout = links_config.get("gotoTimeoutMs", 30000)
         pattern = links_config.get("pattern", "")
 
         print(
