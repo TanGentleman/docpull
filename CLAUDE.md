@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Documentation scraper with caching. Fetches docs from various sites and saves locally.
+Documentation scraper with caching. Fetches docs from various sites and saves locally as markdown.
 
 ## docpull CLI
 
@@ -10,27 +10,36 @@ python docpull.py sites
 
 # Get all doc links for a site
 python docpull.py links modal
-python docpull.py links terraform-aws
+python docpull.py links modal --force      # Bypass cache (use after changing maxDepth in config)
+python docpull.py links modal --save       # Save to ./data/<site>_links.json
 
-# Fetch content (cached for 1 hour)
+# Fetch single page content (cached 1 hour)
 python docpull.py content modal /guide
+python docpull.py content modal /guide --force   # Bypass cache + clear error tracking
 
-# Force fresh scrape (also clears error tracking for that path)
-python docpull.py content modal /guide --force
-
-# Bulk fetch all pages for a site (parallel, respects cache)
+# Bulk fetch entire site (parallel, respects cache)
 python docpull.py index modal
 
 # Cache management
-python docpull.py cache stats              # View cache stats
-python docpull.py cache clear modal        # Clear cache for a site
+python docpull.py cache stats              # View stats by site and type
+python docpull.py cache clear modal        # Clear all cache for a site
 ```
 
 Output saved to `./docs/<site>/<path>.md`
 
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `docpull.py` | CLI client |
+| `content-scraper-api.py` | Modal API (FastAPI + Playwright) |
+| `scraper/config/sites.json` | Site definitions (URLs, selectors, modes) |
+| `docs/ARCHITECTURE.md` | Detailed architecture docs |
+
 ## Adding a New Site
 
-1. Add config to `scraper/config/sites.json`:
+Add config to `scraper/config/sites.json`:
+
 ```json
 {
   "new-site": {
@@ -44,25 +53,19 @@ Output saved to `./docs/<site>/<path>.md`
     },
     "content": {
       "mode": "browser",
-      "selector": "#copy-button",
-      "method": "click_copy"
+      "selector": "#content",
+      "method": "inner_html"
     }
   }
 }
 ```
 
-2. If custom logic is needed, add it in `content-scraper-api.py`.
+Modes: `fetch` (HTTP crawl) or `browser` (Playwright for JS-heavy sites)
 
-## Key Files
-
-- `docpull.py` - CLI client
-- `content-scraper-api.py` - Modal API (deploy this)
-- `scraper/config/sites.json` - Site definitions
-
-## Commands
+## Dev Commands
 
 ```bash
-uv sync                                    # Install deps
-modal serve content-scraper-api.py         # Dev server (hot reload)
-python tests/test_modal.py                 # Test API
+uv sync                                # Install deps
+modal serve content-scraper-api.py     # Dev server (hot reload)
+modal deploy content-scraper-api.py    # Deploy to Modal
 ```
