@@ -53,6 +53,8 @@ jobs:
           MODAL_KEY: ${{ secrets.MODAL_KEY }}
           MODAL_SECRET: ${{ secrets.MODAL_SECRET }}
         run: |
+          source .venv/bin/activate
+
           SITES="modal convex datadog terraform-aws cursor claude-platform claude-code unsloth playwright"
 
           echo "Testing links endpoint for all sites..."
@@ -62,7 +64,7 @@ jobs:
           for site in $SITES; do
             echo ""
             echo "--- $site ---"
-            if uv run python docpull.py links "$site" --force 2>&1 | tail -5; then
+            if python docpull.py links "$site" --force 2>&1 | tail -5; then
               echo "✓ $site OK"
             else
               echo "✗ $site FAILED"
