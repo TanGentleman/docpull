@@ -78,7 +78,7 @@
       "links": {
         "startUrls": [""],
         "pattern": "/docs/",
-        "waitUntil": "domcontentloaded",
+        "waitUntil": "networkidle",
         "maxDepth": 1
       },
       "content": {
