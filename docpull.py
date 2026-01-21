@@ -65,10 +65,12 @@ def cmd_sites():
         print(s)
 
 
-def cmd_links(site_id: str, save: bool = False):
+def cmd_links(site_id: str, save: bool = False, force: bool = False):
     """Get all documentation links for a site."""
+    params = {"max_age": 0} if force else {}
     resp = httpx.get(
         f"{API_BASE}/sites/{site_id}/links",
+        params=params,
         headers=get_auth_headers(),
         timeout=120.0,
     )
@@ -182,6 +184,7 @@ Commands:
   sites                            List all available site IDs
   links <site_id>                  Get all doc links for a site
   links <site_id> --save           Also save links to ./data/<site_id>_links.json
+  links <site_id> --force          Force fresh crawl (bypass cache)
   content <site_id> <path>         Get content (uses cache if <1hr old)
   content <site_id> <path> --force Force fresh scrape (also clears error tracking)
   index <site_id>                  Fetch and cache all pages from a site
@@ -208,7 +211,8 @@ def main():
         cmd_sites()
     elif cmd == "links" and len(sys.argv) >= 3:
         save = "--save" in sys.argv
-        cmd_links(sys.argv[2], save=save)
+        force = "--force" in sys.argv
+        cmd_links(sys.argv[2], save=save, force=force)
     elif cmd == "content" and len(sys.argv) >= 4:
         force = "--force" in sys.argv
         cmd_content(sys.argv[2], sys.argv[3], force=force)

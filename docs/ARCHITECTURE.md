@@ -16,12 +16,13 @@ A Modal-based system for fetching and caching documentation from multiple sites.
 │   (CLI client)   │         │   FastAPI + Playwright          │
 └──────────────────┘         └───────────────┬─────────────────┘
                                              │
-                                             ▼
-                             ┌─────────────────────────────────┐
-                             │   modal.Dict (cache)            │
-                             │   - Stores scraped content      │
-                             │   - 7-day TTL (Modal default)   │
-                             └─────────────────────────────────┘
+                             ┌───────────────┴───────────────┐
+                             ▼                               ▼
+             ┌─────────────────────────┐     ┌─────────────────────────┐
+             │   modal.Dict (cache)    │     │   modal.Dict (errors)   │
+             │   - Content & links     │     │   - Failed link tracker │
+             │   - 7-day TTL           │     │   - 24h auto-expiry     │
+             └─────────────────────────┘     └─────────────────────────┘
 ```
 
 ## Key Files
@@ -48,6 +49,50 @@ A Modal-based system for fetching and caching documentation from multiple sites.
 4. API stores `{content, url, timestamp}` in the cache
 5. CLI writes to `./docs/{site_id}/{path}.md`
 
+## Bulk Indexing
+
+For fetching an entire site at once:
+
+1. CLI calls `POST /sites/{site_id}/index`
+2. API fetches all links for the site (cached)
+3. Checks cache for each path, separates fresh vs stale
+4. Scrapes stale/missing paths in parallel (50 concurrent by default)
+5. Returns summary: total, cached, scraped, successful, failed
+
+## Error Tracking
+
+Links that fail repeatedly are automatically skipped to avoid wasting resources:
+
+- **Threshold**: After 3 consecutive failures, a link is skipped
+- **Auto-expiry**: Errors expire after 24 hours (auto-recovery)
+- **Force override**: Using `--force` clears error tracking for that path
+- **Storage**: Errors stored in separate Modal Dict (`scraper-errors`)
+
+Error data: `{count, last_error, timestamp}`
+
+## Cache Behavior
+
+### Content Cache
+- **Key format**: `{site_id}:{path}` (e.g., `modal:/guide`)
+- **TTL**: 1 hour by default
+- **Force refresh**: Use `--force` flag to bypass cache
+
+### Links Cache
+- **Key format**: `{site_id}:links` (e.g., `modal:links`)
+- **TTL**: 1 hour by default
+- **Force refresh**: Use `--force` flag to bypass cache
+
+**Important**: The links cache key does not include config values like `maxDepth`. If you
+change `maxDepth` in `sites.json` and want to re-crawl with the new depth, use `--force`
+or clear the cache for that site.
+
+## Cache Observability
+
+The API provides cache inspection endpoints:
+
+- `GET /cache/stats` - Total entries, breakdown by site and type
+- `DELETE /cache/{site_id}` - Clear all cache for a site
+
 ## Site Configuration
 
 All per-site behavior lives in `scraper/config/sites.json`.
@@ -67,16 +112,16 @@ Playwright overrides per site:
 {
   "content": {
     "waitUntil": "domcontentloaded",
-    "gotoTimeoutMs": 60000
+    "gotoTimeoutMs": 20000
   },
   "links": {
     "waitUntil": "domcontentloaded",
-    "gotoTimeoutMs": 60000
+    "gotoTimeoutMs": 20000
   }
 }
 ```
 
-Defaults are `waitUntil: "networkidle"` and `gotoTimeoutMs: 60000`. Use
+Defaults are `waitUntil: "networkidle"` and `gotoTimeoutMs: 20000`. Use
 `domcontentloaded` when `networkidle` is too strict (e.g., Terraform docs).
 
 ## Development

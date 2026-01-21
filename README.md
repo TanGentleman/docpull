@@ -35,12 +35,19 @@ python docpull.py sites
 
 # Get all doc links for a site
 python docpull.py links modal
-python docpull.py links terraform-aws
+python docpull.py links modal --force      # Bypass cache (useful after changing maxDepth)
+python docpull.py links modal --save       # Save links to ./data/<site>_links.json
 
 # Fetch content from a page (saves to ./docs/<site>/<path>.md)
 python docpull.py content modal /guide
-python docpull.py content modal /guide/gpu
-python docpull.py content terraform-aws /resources/aws_instance
+python docpull.py content modal /guide --force   # Bypass cache, clear error tracking
+
+# Bulk fetch all pages for a site
+python docpull.py index modal              # Parallel fetch, respects cache
+
+# Cache management
+python docpull.py cache stats              # View cache statistics
+python docpull.py cache clear modal        # Clear all cache for a site
 ```
 
 Content is saved to `./docs/<site>/` with paths converted to filenames:
