@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
 """CLI tool to fetch documentation from the content-scraper API."""
 
+import os
 import re
 import sys
-import os
 import httpx
-from dotenv import load_dotenv
 
-load_dotenv()
+try:
+    from dotenv import load_dotenv
 
-API_BASE = os.environ.get(
-    "SCRAPER_API_URL",
-    "https://tangentleman--content-scraper-api-fastapi-app-dev.modal.run"
-)
+    load_dotenv()
+except ImportError:
+    pass
+
+_ENV = os.environ.get("ENVIRONMENT", "dev")
+_USERNAME = os.environ.get("MODAL_USERNAME", "tangentleman")
+_SUFFIX = "-dev" if _ENV == "dev" else ""
+
+API_BASE = f"https://{_USERNAME}--content-scraper-api-fastapi-app{_SUFFIX}.modal.run"
 
 
 def get_auth_headers() -> dict:
