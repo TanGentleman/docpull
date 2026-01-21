@@ -30,8 +30,8 @@
       },
       "content": {
         "mode": "browser",
-        "waitFor": "div.flex.justify-end button",
-        "selector": "div.flex.justify-end button",
+        "waitFor": "button[type='button']:has(div:has-text('Copy as Markdown'))",
+        "selector": "button[type='button']:has(div:has-text('Copy as Markdown'))",
         "method": "click_copy"
       }
     },
