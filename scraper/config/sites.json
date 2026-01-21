@@ -59,7 +59,7 @@
       "extractor": "terraform",
       "links": {
         "startUrls": [""],
-        "pattern": "registry.terraform.io/providers/hashicorp/aws/latest/docs",
+        "pattern": "/providers/hashicorp/aws/latest/docs",
         "waitFor": "#provider-docs-content",
         "waitUntil": "domcontentloaded"
       },
@@ -130,8 +130,7 @@
       "extractor": "playwright",
       "links": {
         "startUrls": ["/library"],
-        "pattern": "playwright.dev/python/docs/",
-        "maxDepth": 2
+        "pattern": "/python/docs/"
       },
       "content": {
         "waitFor": "main article .theme-doc-markdown",
