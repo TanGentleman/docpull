@@ -14,7 +14,9 @@ def validate_api_url() -> str:
     required = ["MODAL_USERNAME", "MODAL_KEY", "MODAL_SECRET"]
     missing = [k for k in required if not os.environ.get(k)]
     if missing:
-        raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
+        raise ValueError(
+            f"Missing required environment variables: {', '.join(missing)}"
+        )
 
     env = os.environ.get("ENVIRONMENT", "prod")
     url_suffix = "-dev" if env == "dev" else ""
@@ -32,6 +34,7 @@ def get_headers() -> Dict[str, str]:
 @dataclass
 class SiteInfo:
     """Site metadata from local config."""
+
     site_id: str
     name: str
     base_url: str
@@ -72,7 +75,7 @@ def get_site_links(base_url: str, site_id: str) -> List[str]:
 def link_to_path(link: str, base_url: str) -> str:
     """Convert a full URL to a path relative to the site baseUrl."""
     if link.startswith(base_url):
-        suffix = link[len(base_url):]
+        suffix = link[len(base_url) :]
         if suffix and not suffix.startswith("/"):
             suffix = "/" + suffix
         return suffix

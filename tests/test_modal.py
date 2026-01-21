@@ -86,7 +86,9 @@ async def _fetch_with_semaphore(
 
 async def fetch_all_parallel() -> tuple[dict, bool]:
     """Fetch content from all providers in parallel using semaphore."""
-    print(f"\nFetching content from {len(ALL_SITES)} sites (max concurrency: {MAX_CONCURRENCY})...")
+    print(
+        f"\nFetching content from {len(ALL_SITES)} sites (max concurrency: {MAX_CONCURRENCY})..."
+    )
     print("=" * 60)
 
     semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
@@ -156,7 +158,9 @@ def run_sequential_tests():
 
     for name, url, params in tests:
         print(f"\n{name} endpoint...")
-        resp = httpx.get(url, params=params, headers=get_auth_headers(), timeout=DEFAULT_TIMEOUT)
+        resp = httpx.get(
+            url, params=params, headers=get_auth_headers(), timeout=DEFAULT_TIMEOUT
+        )
         if resp.status_code == 200:
             print(f"  ✓ {resp.json()}")
         else:

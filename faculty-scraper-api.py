@@ -15,15 +15,19 @@ from fastapi import FastAPI
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
-playwright_image = modal.Image.debian_slim(python_version="3.10").run_commands(
-    "apt-get update",
-    "apt-get install -y software-properties-common",
-    "apt-add-repository non-free",
-    "apt-add-repository contrib",
-    "pip install playwright==1.42.0",
-    "playwright install-deps chromium",
-    "playwright install chromium",
-).uv_pip_install("fastapi[standard]", "pydantic")
+playwright_image = (
+    modal.Image.debian_slim(python_version="3.10")
+    .run_commands(
+        "apt-get update",
+        "apt-get install -y software-properties-common",
+        "apt-add-repository non-free",
+        "apt-add-repository contrib",
+        "pip install playwright==1.42.0",
+        "playwright install-deps chromium",
+        "playwright install chromium",
+    )
+    .uv_pip_install("fastapi[standard]", "pydantic")
+)
 
 app = modal.App("faculty-scraper-api", image=playwright_image)
 web_app = FastAPI()
@@ -39,6 +43,7 @@ SELECTOR = ".person-teaser__content"
 
 # --- Cache functions ---
 
+
 def load_cache() -> dict[str, dict]:
     """Load URL -> {uuid, timestamp} mappings from all mapping files."""
     cache = {}
@@ -48,7 +53,10 @@ def load_cache() -> dict[str, dict]:
                 if line:
                     entry = json.loads(line)
                     # Only keep the latest entry for each URL
-                    if entry["url"] not in cache or entry["timestamp"] > cache[entry["url"]]["timestamp"]:
+                    if (
+                        entry["url"] not in cache
+                        or entry["timestamp"] > cache[entry["url"]]["timestamp"]
+                    ):
                         cache[entry["url"]] = entry
     return cache
 
@@ -74,31 +82,39 @@ def save_cache(url: str, entries: list[dict]):
 
     # Write to a new unique jsonl file to avoid concurrency issues
     mapping_file = MAPPINGS_DIR / f"{entry_uuid}.jsonl"
-    mapping_file.write_text(json.dumps({
-        "url": url,
-        "uuid": entry_uuid,
-        "timestamp": datetime.now().isoformat()
-    }) + "\n")
+    mapping_file.write_text(
+        json.dumps(
+            {"url": url, "uuid": entry_uuid, "timestamp": datetime.now().isoformat()}
+        )
+        + "\n"
+    )
 
 
 # --- Parsing functions ---
 
+
 def parse_entry(raw: str) -> dict:
     """Parse raw faculty text into structured fields."""
     # Clean HTML comments and whitespace
-    text = re.sub(r'<!--.*?-->', '', raw, flags=re.DOTALL)
-    lines = [l.strip() for l in text.split('\n') if l.strip()]
+    text = re.sub(r"<!--.*?-->", "", raw, flags=re.DOTALL)
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
 
     if not lines:
         return {}
 
-    result = {"name": lines[0], "title": "", "department": "",
-              "primary_area": "", "secondary_area": "", "research": ""}
+    result = {
+        "name": lines[0],
+        "title": "",
+        "department": "",
+        "primary_area": "",
+        "secondary_area": "",
+        "research": "",
+    }
 
     field_map = {
         "Primary Thematic Area": "primary_area",
         "Secondary Thematic Area": "secondary_area",
-        "Research Summary": "research"
+        "Research Summary": "research",
     }
 
     current = None
@@ -125,17 +141,22 @@ def to_markdown(entries: list[dict]) -> str:
         if not e.get("name"):
             continue
         lines.append(f"## {e['name']}")
-        if e.get("title"): lines.append(f"**Title:** {e['title']}")
-        if e.get("department"): lines.append(f"**Department:** {e['department']}")
-        if e.get("primary_area"): lines.append(f"**Primary Area:** {e['primary_area']}")
+        if e.get("title"):
+            lines.append(f"**Title:** {e['title']}")
+        if e.get("department"):
+            lines.append(f"**Department:** {e['department']}")
+        if e.get("primary_area"):
+            lines.append(f"**Primary Area:** {e['primary_area']}")
         if e.get("secondary_area") and e["secondary_area"] != "None":
             lines.append(f"**Secondary Area:** {e['secondary_area']}")
-        if e.get("research"): lines.append(f"**Research:** {e['research']}")
+        if e.get("research"):
+            lines.append(f"**Research:** {e['research']}")
         lines.append("")
     return "\n".join(lines)
 
 
 # --- Scraping ---
+
 
 async def scrape_page(url: str, cache: dict) -> list[dict]:
     """Scrape a page, using cache if available."""
@@ -171,6 +192,7 @@ async def scrape_page(url: str, cache: dict) -> list[dict]:
 
 # --- Endpoints ---
 
+
 class ScrapeRequest(BaseModel):
     start_page: int = 1
     end_page: int = 26
@@ -178,11 +200,13 @@ class ScrapeRequest(BaseModel):
 
 @web_app.get("/")
 async def root():
-    return {"endpoints": {
-        "POST /scrape/markdown": "Get faculty as markdown (cached)",
-        "GET /cache": "View cache stats",
-        "DELETE /cache": "Clear cache"
-    }}
+    return {
+        "endpoints": {
+            "POST /scrape/markdown": "Get faculty as markdown (cached)",
+            "GET /cache": "View cache stats",
+            "DELETE /cache": "Clear cache",
+        }
+    }
 
 
 @web_app.post("/scrape/markdown", response_class=PlainTextResponse)
@@ -205,6 +229,7 @@ async def scrape_markdown(req: ScrapeRequest, use_cache: bool = True):
 async def cache_stats():
     cache = load_cache()
     return {"count": len(cache), "urls": list(cache.keys())}
+
 
 @app.function(volumes={"/cache": volume})
 @modal.asgi_app(requires_proxy_auth=True)

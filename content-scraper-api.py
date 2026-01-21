@@ -208,7 +208,7 @@ class Scraper:
         try:
             print(f"[scrape_content] Navigating to {url}...")
             page.goto(url, wait_until=wait_until, timeout=goto_timeout)
-            print(f"[scrape_content] Page loaded")
+            print("[scrape_content] Page loaded")
 
             # Handle site-specific setup (cookie consent, etc.)
             self._dismiss_cookie_banner(page, config)
@@ -292,11 +292,11 @@ class Scraper:
         try:
             all_links = set()
 
-            for start_path in (start_urls or [""]):
+            for start_path in start_urls or [""]:
                 start_url = base_url + start_path
                 print(f"[scrape_links_browser] Navigating to {start_url}...")
                 page.goto(start_url, wait_until=wait_until, timeout=goto_timeout)
-                print(f"[scrape_links_browser] Page loaded")
+                print("[scrape_links_browser] Page loaded")
 
                 # Handle site-specific setup
                 self._dismiss_cookie_banner(page, config)
@@ -310,7 +310,7 @@ class Scraper:
                     page.wait_for_timeout(2000)
 
                 # Extract all links
-                print(f"[scrape_links_browser] Extracting links...")
+                print("[scrape_links_browser] Extracting links...")
                 raw_links = page.eval_on_selector_all(
                     "a[href]", "elements => elements.map(e => e.href)"
                 )
@@ -321,10 +321,15 @@ class Scraper:
                     if pattern and pattern not in clean:
                         if clean != base_url and clean != f"{base_url}/":
                             continue
-                    if clean.startswith(base_url) or urlparse(clean).netloc == urlparse(base_url).netloc:
+                    if (
+                        clean.startswith(base_url)
+                        or urlparse(clean).netloc == urlparse(base_url).netloc
+                    ):
                         all_links.add(clean)
 
-            print(f"[scrape_links_browser] SUCCESS: {len(all_links)} links after filtering")
+            print(
+                f"[scrape_links_browser] SUCCESS: {len(all_links)} links after filtering"
+            )
             return {"success": True, "links": sorted(all_links)}
 
         except Exception as e:
@@ -348,7 +353,8 @@ async def scrape_links_fetch(site_id: str) -> dict:
     base_url = config["baseUrl"]
     links_config = config.get("links", {})
     start_urls = [
-        base_url + path if path else base_url for path in links_config.get("startUrls", [""])
+        base_url + path if path else base_url
+        for path in links_config.get("startUrls", [""])
     ]
     max_depth = links_config.get("maxDepth", 2)
     pattern = links_config.get("pattern", "")
@@ -445,7 +451,9 @@ async def get_sites():
 @web_app.get("/sites/{site_id}/links")
 async def get_site_links(
     site_id: str,
-    max_age: int = Query(default=DEFAULT_MAX_AGE, description="Max cache age in seconds"),
+    max_age: int = Query(
+        default=DEFAULT_MAX_AGE, description="Max cache age in seconds"
+    ),
 ) -> LinksResponse:
     """Get all documentation links for a site."""
     sites_config = load_sites_config()
@@ -501,7 +509,9 @@ async def get_site_links(
 async def get_site_content(
     site_id: str,
     path: str = Query(default="", description="Page path relative to baseUrl"),
-    max_age: int = Query(default=DEFAULT_MAX_AGE, description="Max cache age in seconds"),
+    max_age: int = Query(
+        default=DEFAULT_MAX_AGE, description="Max cache age in seconds"
+    ),
 ) -> ContentResponse:
     """Get content from a specific page.
 
@@ -610,13 +620,15 @@ async def get_errors():
     for key in error_tracker.keys():
         error_info = error_tracker[key]
         parts = key.split(":", 1)
-        errors.append({
-            "site_id": parts[0],
-            "path": parts[1] if len(parts) > 1 else "",
-            "count": error_info.get("count", 0),
-            "last_error": error_info.get("last_error", ""),
-            "timestamp": error_info.get("timestamp", 0),
-        })
+        errors.append(
+            {
+                "site_id": parts[0],
+                "path": parts[1] if len(parts) > 1 else "",
+                "count": error_info.get("count", 0),
+                "last_error": error_info.get("last_error", ""),
+                "timestamp": error_info.get("timestamp", 0),
+            }
+        )
 
     # Sort by error count descending
     errors.sort(key=lambda x: x["count"], reverse=True)
@@ -655,7 +667,9 @@ async def clear_site_errors(site_id: str):
 @web_app.post("/sites/{site_id}/index")
 async def index_site(
     site_id: str,
-    max_age: int = Query(default=DEFAULT_MAX_AGE, description="Max cache age in seconds"),
+    max_age: int = Query(
+        default=DEFAULT_MAX_AGE, description="Max cache age in seconds"
+    ),
     max_concurrent: int = Query(default=50, description="Max concurrent requests"),
 ):
     """Fetch all pages for a site in parallel, respecting cache."""
@@ -673,11 +687,12 @@ async def index_site(
     paths = []
     for link in links:
         if link.startswith(base_url):
-            path = link[len(base_url):]
+            path = link[len(base_url) :]
             paths.append(path)
         else:
             # Handle links with different scheme or www
             from urllib.parse import urlparse
+
             link_parsed = urlparse(link)
             base_parsed = urlparse(base_url)
             if link_parsed.netloc == base_parsed.netloc:

@@ -33,31 +33,69 @@ def html_to_markdown(html: str) -> str:
     md = html
     # Headers
     for i in range(1, 7):
-        md = re.sub(rf'<h{i}[^>]*>(.*?)</h{i}>', rf'\n{"#"*i} \1\n\n', md, flags=re.DOTALL | re.IGNORECASE)
+        md = re.sub(
+            rf"<h{i}[^>]*>(.*?)</h{i}>",
+            rf"\n{'#' * i} \1\n\n",
+            md,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
     # Code blocks
-    md = re.sub(r'<pre[^>]*><code[^>]*>(.*?)</code></pre>', r'\n```\n\1\n```\n\n', md, flags=re.DOTALL)
-    md = re.sub(r'<pre[^>]*>(.*?)</pre>', r'\n```\n\1\n```\n\n', md, flags=re.DOTALL)
-    md = re.sub(r'<code[^>]*>(.*?)</code>', r'`\1`', md, flags=re.DOTALL)
+    md = re.sub(
+        r"<pre[^>]*><code[^>]*>(.*?)</code></pre>",
+        r"\n```\n\1\n```\n\n",
+        md,
+        flags=re.DOTALL,
+    )
+    md = re.sub(r"<pre[^>]*>(.*?)</pre>", r"\n```\n\1\n```\n\n", md, flags=re.DOTALL)
+    md = re.sub(r"<code[^>]*>(.*?)</code>", r"`\1`", md, flags=re.DOTALL)
     # Bold/italic
-    md = re.sub(r'<(strong|b)[^>]*>(.*?)</\1>', r'**\2**', md, flags=re.DOTALL | re.IGNORECASE)
-    md = re.sub(r'<(em|i)[^>]*>(.*?)</\1>', r'*\2*', md, flags=re.DOTALL | re.IGNORECASE)
+    md = re.sub(
+        r"<(strong|b)[^>]*>(.*?)</\1>", r"**\2**", md, flags=re.DOTALL | re.IGNORECASE
+    )
+    md = re.sub(
+        r"<(em|i)[^>]*>(.*?)</\1>", r"*\2*", md, flags=re.DOTALL | re.IGNORECASE
+    )
     # Links
-    md = re.sub(r'<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>', r'[\2](\1)', md, flags=re.DOTALL)
+    md = re.sub(
+        r'<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>', r"[\2](\1)", md, flags=re.DOTALL
+    )
+
     # Lists
     def convert_list(m, marker_fn):
-        items = re.findall(r'<li[^>]*>(.*?)</li>', m.group(1), flags=re.DOTALL)
-        return '\n' + '\n'.join(marker_fn(i, item.strip()) for i, item in enumerate(items)) + '\n\n'
-    md = re.sub(r'<ul[^>]*>(.*?)</ul>', lambda m: convert_list(m, lambda i, t: f'- {t}'), md, flags=re.DOTALL)
-    md = re.sub(r'<ol[^>]*>(.*?)</ol>', lambda m: convert_list(m, lambda i, t: f'{i+1}. {t}'), md, flags=re.DOTALL)
+        items = re.findall(r"<li[^>]*>(.*?)</li>", m.group(1), flags=re.DOTALL)
+        return (
+            "\n"
+            + "\n".join(marker_fn(i, item.strip()) for i, item in enumerate(items))
+            + "\n\n"
+        )
+
+    md = re.sub(
+        r"<ul[^>]*>(.*?)</ul>",
+        lambda m: convert_list(m, lambda i, t: f"- {t}"),
+        md,
+        flags=re.DOTALL,
+    )
+    md = re.sub(
+        r"<ol[^>]*>(.*?)</ol>",
+        lambda m: convert_list(m, lambda i, t: f"{i + 1}. {t}"),
+        md,
+        flags=re.DOTALL,
+    )
     # Paragraphs/breaks
-    md = re.sub(r'<p[^>]*>(.*?)</p>', r'\1\n\n', md, flags=re.DOTALL)
-    md = re.sub(r'<br\s*/?>', '\n', md)
+    md = re.sub(r"<p[^>]*>(.*?)</p>", r"\1\n\n", md, flags=re.DOTALL)
+    md = re.sub(r"<br\s*/?>", "\n", md)
     # Strip remaining tags
-    md = re.sub(r'<[^>]+>', '', md)
+    md = re.sub(r"<[^>]+>", "", md)
     # Cleanup
-    md = re.sub(r'\n{3,}', '\n\n', md)
-    md = re.sub(r'Copy\n', '', md)
-    md = md.replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&').replace('&quot;', '"').replace('&#39;', "'")
+    md = re.sub(r"\n{3,}", "\n\n", md)
+    md = re.sub(r"Copy\n", "", md)
+    md = (
+        md.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+        .replace("&quot;", '"')
+        .replace("&#39;", "'")
+    )
     return md.strip()
 
 
@@ -90,6 +128,7 @@ def cmd_links(site_id: str, save: bool = False, force: bool = False):
         os.makedirs(out_dir, exist_ok=True)
         out_path = f"{out_dir}/{site_id}_links.json"
         import json
+
         with open(out_path, "w") as f:
             json.dump({f"{site_id}_links": data["links"]}, f, indent=2)
         print(f"Saved to {out_path}", file=sys.stderr)
@@ -165,16 +204,14 @@ def cmd_cache(action: str = "stats", site_id: str = None):
         resp.raise_for_status()
         data = resp.json()
         print(f"Total cache entries: {data['total_entries']}")
-        print(f"\nBy type:")
+        print("\nBy type:")
         for type_name, count in data["by_type"].items():
             print(f"  {type_name}: {count}")
-        print(f"\nBy site:")
+        print("\nBy site:")
         for site, count in data["by_site"].items():
             print(f"  {site}: {count}")
     elif action == "clear" and site_id:
-        resp = httpx.delete(
-            f"{API_BASE}/cache/{site_id}", headers=get_auth_headers()
-        )
+        resp = httpx.delete(f"{API_BASE}/cache/{site_id}", headers=get_auth_headers())
         resp.raise_for_status()
         print(f"Cleared {resp.json()['deleted']} cache entries for {site_id}")
     else:
