@@ -153,6 +153,22 @@
         "method": "inner_html",
         "waitUntil": "domcontentloaded"
       }
+    },
+    "whatnot": {
+      "name": "Whatnot",
+      "baseUrl": "https://developers.whatnot.com/docs",
+      "mode": "fetch",
+      "links": {
+        "startUrls": [""],
+        "pattern": "/docs",
+        "maxDepth": 2
+      },
+      "content": {
+        "mode": "browser",
+        "waitFor": "main",
+        "selector": "main",
+        "method": "inner_html"
+      }
     }
   }
 }
