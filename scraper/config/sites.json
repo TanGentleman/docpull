@@ -98,7 +98,7 @@
         "maxDepth": 2
       },
       "content": {
-        "selector": "//button[.//span[normalize-space(text())=\"Copy page\"]]",
+        "selector": "//button[contains(., 'Copy page')]",
         "method": "click_copy"
       }
     },
