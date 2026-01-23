@@ -14,9 +14,11 @@
       },
       "content": {
         "mode": "browser",
-        "waitFor": "//button[@title=\"Copy page\"]",
-        "selector": "//button[@title=\"Copy page\"]",
-        "method": "click_copy"
+        "method": "click_copy",
+        "clickSequence": [
+          { "selector": "//button[@title='Copy page']", "waitAfter": 500 },
+          { "selector": "button.menu-item:has-text('Copy page')", "waitAfter": 1000 }
+        ]
       }
     },
     "convex": {

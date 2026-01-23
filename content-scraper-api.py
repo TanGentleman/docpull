@@ -183,7 +183,11 @@ class Scraper:
         content_config = config.get("content", {})
         method = content_config.get("method", "inner_html")
         selector = content_config.get("selector")
+        click_sequence = content_config.get("clickSequence")
+        # Auto-derive waitFor from first clickSequence selector if not set
         wait_for = content_config.get("waitFor")
+        if not wait_for and click_sequence:
+            wait_for = click_sequence[0].get("selector")
         wait_for_timeout = content_config.get("waitForTimeoutMs", 15000)
         wait_until = content_config.get("waitUntil", "domcontentloaded")
         goto_timeout = content_config.get("gotoTimeoutMs", 30000)
@@ -213,8 +217,28 @@ class Scraper:
 
             # Extract content based on method
             if method == "click_copy":
-                page.click(selector)
-                page.wait_for_timeout(1000)
+                if click_sequence:
+                    # Validate clickSequence config
+                    for i, step in enumerate(click_sequence):
+                        if not step.get("selector"):
+                            raise ValueError(
+                                f"clickSequence[{i}] missing required 'selector' field"
+                            )
+                    # Multi-step click sequence (e.g., open dropdown, then click option)
+                    for i, step in enumerate(click_sequence):
+                        step_selector = step["selector"]
+                        wait_after = step.get("waitAfter", 500)
+                        print(f"[scrape_content] Click step {i+1}: {step_selector}")
+                        page.click(step_selector)
+                        page.wait_for_timeout(wait_after)
+                else:
+                    # Single click (backward compatible)
+                    if not selector:
+                        raise ValueError(
+                            "click_copy method requires 'selector' or 'clickSequence'"
+                        )
+                    page.click(selector)
+                    page.wait_for_timeout(1000)
                 content = page.evaluate("() => navigator.clipboard.readText()")
             else:  # inner_html
                 element = page.query_selector(selector)

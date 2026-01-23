@@ -74,3 +74,16 @@ Add to `scraper/config/sites.json`:
 - `mode`: `fetch` (HTTP crawl) or `browser` (Playwright for JS sites)
 - `maxDepth`: Only affects fetch mode (browser just extracts from startUrls)
 - `method`: `inner_html` (extract HTML) or `click_copy` (for copy buttons)
+- `clickSequence`: For multi-step copy buttons (e.g., dropdown menus), use an array of click steps:
+
+```json
+"content": {
+  "method": "click_copy",
+  "clickSequence": [
+    { "selector": "//button[@title='Copy page']", "waitAfter": 500 },
+    { "selector": "button.menu-item:has-text('Copy page')", "waitAfter": 1000 }
+  ]
+}
+```
+
+Each step requires `selector` and optionally `waitAfter` (ms, default 500). The `waitFor` field is auto-derived from the first selector in `clickSequence` if not explicitly set.
