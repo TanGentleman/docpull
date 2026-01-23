@@ -86,4 +86,6 @@ Add to `scraper/config/sites.json`:
 }
 ```
 
-Each step requires `selector` and optionally `waitAfter` (ms, default 500). The `waitFor` field is auto-derived from the first selector in `clickSequence` if not explicitly set.
+Each step requires `selector` and optionally `waitAfter` (ms, default 500).
+
+**Note:** `waitFor` is auto-derived from `clickSequence[0].selector` or `selector` if not explicitly set, so you rarely need to specify it.

@@ -13,7 +13,6 @@
         "maxDepth": 1
       },
       "content": {
-        "mode": "browser",
         "method": "click_copy",
         "clickSequence": [
           { "selector": "//button[@title='Copy page']", "waitAfter": 500 },
@@ -33,8 +32,6 @@
         "maxDepth": 2
       },
       "content": {
-        "mode": "browser",
-        "waitFor": "button[type='button']:has(div:has-text('Copy as Markdown'))",
         "selector": "button[type='button']:has(div:has-text('Copy as Markdown'))",
         "method": "click_copy"
       }
@@ -50,8 +47,6 @@
         "maxDepth": 3
       },
       "content": {
-        "mode": "browser",
-        "waitFor": "#mainContent",
         "selector": "#mainContent",
         "method": "inner_html",
         "waitUntil": "domcontentloaded"
@@ -70,7 +65,6 @@
         "waitUntil": "domcontentloaded"
       },
       "content": {
-        "waitFor": "#provider-docs-content",
         "selector": "#provider-docs-content",
         "method": "inner_html",
         "waitUntil": "domcontentloaded"
@@ -89,8 +83,6 @@
         "maxDepth": 1
       },
       "content": {
-        "mode": "browser",
-        "waitFor": "//button[@type=\"button\"][.//span[text()=\"Copy page\"]]",
         "selector": "//button[@type=\"button\"][.//span[text()=\"Copy page\"]]",
         "method": "click_copy"
       }
@@ -106,8 +98,6 @@
         "maxDepth": 2
       },
       "content": {
-        "mode": "browser",
-        "waitFor": "//button[.//span[normalize-space(text())=\"Copy page\"]]",
         "selector": "//button[.//span[normalize-space(text())=\"Copy page\"]]",
         "method": "click_copy"
       }
@@ -123,8 +113,6 @@
         "maxDepth": 1
       },
       "content": {
-        "mode": "browser",
-        "waitFor": "#page-context-menu-button",
         "selector": "#page-context-menu-button",
         "method": "click_copy"
       }
@@ -142,8 +130,6 @@
         "gotoTimeoutMs": 15000
       },
       "content": {
-        "mode": "browser",
-        "waitFor": "//button[@aria-label=\"Copy page\"]",
         "selector": "//button[@aria-label=\"Copy page\"]",
         "method": "click_copy"
       }
@@ -159,7 +145,6 @@
         "pattern": "/python/docs/"
       },
       "content": {
-        "waitFor": "main article .theme-doc-markdown",
         "selector": "main article .theme-doc-markdown",
         "method": "inner_html",
         "waitUntil": "domcontentloaded"
@@ -176,8 +161,6 @@
         "maxDepth": 2
       },
       "content": {
-        "mode": "browser",
-        "waitFor": "main",
         "selector": "main",
         "method": "inner_html"
       }
@@ -193,8 +176,6 @@
         "waitUntil": "networkidle"
       },
       "content": {
-        "mode": "browser",
-        "waitFor": ".PublicPylonArticle",
         "selector": ".PublicPylonArticle",
         "method": "inner_html",
         "waitUntil": "domcontentloaded"

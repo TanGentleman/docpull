@@ -184,10 +184,13 @@ class Scraper:
         method = content_config.get("method", "inner_html")
         selector = content_config.get("selector")
         click_sequence = content_config.get("clickSequence")
-        # Auto-derive waitFor from first clickSequence selector if not set
+        # Auto-derive waitFor if not explicitly set (falls back to first click target or selector)
         wait_for = content_config.get("waitFor")
-        if not wait_for and click_sequence:
-            wait_for = click_sequence[0].get("selector")
+        if not wait_for:
+            if click_sequence:
+                wait_for = click_sequence[0].get("selector")
+            elif selector:
+                wait_for = selector
         wait_for_timeout = content_config.get("waitForTimeoutMs", 15000)
         wait_until = content_config.get("waitUntil", "domcontentloaded")
         goto_timeout = content_config.get("gotoTimeoutMs", 30000)
