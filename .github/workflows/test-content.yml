@@ -74,10 +74,19 @@ jobs:
           ENCODED_PATH=$(printf '%s' "${{ matrix.testPath }}" | jq -sRr @uri)
 
           echo "Testing content for ${{ matrix.id }} (${{ matrix.testPath }})..."
-          RESPONSE=$(curl -sf "${API_BASE}/sites/${{ matrix.id }}/content?path=${ENCODED_PATH}&max_age=0" \
+          URL="${API_BASE}/sites/${{ matrix.id }}/content?path=${ENCODED_PATH}&max_age=0"
+
+          HTTP_CODE=$(curl -s -o /tmp/response.json -w "%{http_code}" "$URL" \
             -H "Modal-Key: ${MODAL_KEY}" \
             -H "Modal-Secret: ${MODAL_SECRET}")
 
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::HTTP $HTTP_CODE for ${{ matrix.id }}"
+            cat /tmp/response.json
+            exit 1
+          fi
+
+          RESPONSE=$(cat /tmp/response.json)
           CACHED=$(echo "$RESPONSE" | jq -r '.from_cache')
           CONTENT_LEN=$(echo "$RESPONSE" | jq -r '.content | length')
 
