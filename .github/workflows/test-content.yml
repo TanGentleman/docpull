@@ -22,7 +22,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.sites.outputs.matrix }}
-      api_base: ${{ steps.health.outputs.api_base }}
     steps:
       - uses: actions/checkout@v4
 
@@ -37,7 +36,6 @@ jobs:
           SUFFIX=""
           if [ "$ENVIRONMENT" = "dev" ]; then SUFFIX="-dev"; fi
           API_BASE="https://${MODAL_USERNAME}--content-scraper-api-fastapi-app${SUFFIX}.modal.run"
-          echo "api_base=$API_BASE" >> $GITHUB_OUTPUT
 
           echo "Checking API health at $API_BASE..."
           RESPONSE=$(curl -sf "$API_BASE/" \
@@ -63,10 +61,15 @@ jobs:
     steps:
       - name: Test content for ${{ matrix.id }}
         env:
-          API_BASE: ${{ needs.get-sites.outputs.api_base }}
+          ENVIRONMENT: ${{ inputs.environment || 'prod' }}
+          MODAL_USERNAME: ${{ secrets.MODAL_USERNAME }}
           MODAL_KEY: ${{ secrets.MODAL_KEY }}
           MODAL_SECRET: ${{ secrets.MODAL_SECRET }}
         run: |
+          SUFFIX=""
+          if [ "$ENVIRONMENT" = "dev" ]; then SUFFIX="-dev"; fi
+          API_BASE="https://${MODAL_USERNAME}--content-scraper-api-fastapi-app${SUFFIX}.modal.run"
+
           # URL encode the path
           ENCODED_PATH=$(printf '%s' "${{ matrix.testPath }}" | jq -sRr @uri)
 
