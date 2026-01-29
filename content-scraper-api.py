@@ -16,7 +16,7 @@ from urllib.parse import urljoin, urlparse, urlunparse
 import modal
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import PlainTextResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # Modal image with Playwright
 playwright_image = (
@@ -47,15 +47,79 @@ ERROR_THRESHOLD = 3  # Skip links that have failed this many times
 ERROR_EXPIRY = 86400  # 24 hours - errors auto-expire
 
 
+# --- Site Config Models ---
+class ClickStep(BaseModel):
+    """A single step in a click sequence."""
+    selector: str
+    waitAfter: int = 500
+
+
+class LinksConfig(BaseModel):
+    """Configuration for link discovery."""
+    startUrls: list[str] = Field(default_factory=lambda: [""])
+    pattern: str = ""
+    maxDepth: int = 2
+    waitFor: str | None = None
+    waitForTimeoutMs: int = 15000
+    waitUntil: str = "domcontentloaded"
+    gotoTimeoutMs: int = 30000
+
+
+class ContentConfig(BaseModel):
+    """Configuration for content extraction."""
+    mode: str = "browser"
+    selector: str | None = None
+    method: str = "inner_html"
+    clickSequence: list[ClickStep] | None = None
+    waitFor: str | None = None
+    waitForTimeoutMs: int = 15000
+    waitUntil: str = "domcontentloaded"
+    gotoTimeoutMs: int = 30000
+
+
+class SiteConfig(BaseModel):
+    """Configuration for a documentation site."""
+    name: str
+    baseUrl: str
+    mode: str = "fetch"
+    defaultPath: str = ""
+    testPath: str | None = None
+    extractor: str | None = None
+    links: LinksConfig = Field(default_factory=LinksConfig)
+    content: ContentConfig = Field(default_factory=ContentConfig)
+
+
+# --- Cache Helpers ---
+def get_cached(cache_key: str, max_age: int) -> dict | None:
+    """Get from cache if fresh, else None."""
+    try:
+        cached = cache[cache_key]
+        if cached and (time.time() - cached.get("timestamp", 0)) < max_age:
+            return cached
+    except KeyError:
+        pass
+    return None
+
+
+def set_cached(cache_key: str, data: dict) -> None:
+    """Set cache entry with timestamp."""
+    cache[cache_key] = {**data, "timestamp": time.time()}
+
+
 # --- Load sites config ---
-def load_sites_config() -> dict:
-    """Load sites configuration from embedded JSON file."""
+def load_sites_config() -> dict[str, SiteConfig]:
+    """Load and validate sites configuration from embedded JSON file.
+
+    Returns dict mapping site_id to validated SiteConfig.
+    Raises ValidationError if config is invalid.
+    """
     config_path = Path("/root/sites.json")
     if not config_path.exists():
         # Fallback to local path during development
         config_path = Path(__file__).parent / "scraper" / "config" / "sites.json"
     with open(config_path) as f:
-        return json.load(f)["sites"]
+        raw = json.load(f)["sites"]
+    return {site_id: SiteConfig(**cfg) for site_id, cfg in raw.items()}
 
 
 # --- Response Models ---
@@ -255,9 +319,9 @@ class Scraper:
         self.pw.stop()
         print("Browser closed")
 
-    def _dismiss_cookie_banner(self, page, site_config: dict):
+    def _dismiss_cookie_banner(self, page, site_config: SiteConfig):
         """Handle cookie consent banners for specific sites."""
-        extractor = site_config.get("extractor", "default")
+        extractor = site_config.extractor or "default"
         if extractor == "terraform":
             try:
                 btn = page.get_by_role("button", name="Accept All")
@@ -276,7 +340,7 @@ class Scraper:
             print(f"[scrape_content] ERROR: Unknown site: {site_id}")
             return {"success": False, "error": f"Unknown site: {site_id}"}
 
-        url = config["baseUrl"] + path
+        url = config.baseUrl + path
         error_key = f"{site_id}:{path}"
 
         # Force flag clears error tracking for this path
@@ -307,20 +371,20 @@ class Scraper:
             except KeyError:
                 pass  # No error history
 
-        content_config = config.get("content", {})
-        method = content_config.get("method", "inner_html")
-        selector = content_config.get("selector")
-        click_sequence = content_config.get("clickSequence")
+        content_cfg = config.content
+        method = content_cfg.method
+        selector = content_cfg.selector
+        click_sequence = content_cfg.clickSequence
         # Auto-derive waitFor if not explicitly set (falls back to first click target or selector)
-        wait_for = content_config.get("waitFor")
+        wait_for = content_cfg.waitFor
         if not wait_for:
             if click_sequence:
-                wait_for = click_sequence[0].get("selector")
+                wait_for = click_sequence[0].selector
             elif selector:
                 wait_for = selector
-        wait_for_timeout = content_config.get("waitForTimeoutMs", 15000)
-        wait_until = content_config.get("waitUntil", "domcontentloaded")
-        goto_timeout = content_config.get("gotoTimeoutMs", 30000)
+        wait_for_timeout = content_cfg.waitForTimeoutMs
+        wait_until = content_cfg.waitUntil
+        goto_timeout = content_cfg.gotoTimeoutMs
 
         print(f"[scrape_content] {url} (method={method})")
 
@@ -348,19 +412,11 @@ class Scraper:
             # Extract content based on method
             if method == "click_copy":
                 if click_sequence:
-                    # Validate clickSequence config
-                    for i, step in enumerate(click_sequence):
-                        if not step.get("selector"):
-                            raise ValueError(
-                                f"clickSequence[{i}] missing required 'selector' field"
-                            )
                     # Multi-step click sequence (e.g., open dropdown, then click option)
                     for i, step in enumerate(click_sequence):
-                        step_selector = step["selector"]
-                        wait_after = step.get("waitAfter", 500)
-                        print(f"[scrape_content] Click step {i+1}: {step_selector}")
-                        page.click(step_selector)
-                        page.wait_for_timeout(wait_after)
+                        print(f"[scrape_content] Click step {i+1}: {step.selector}")
+                        page.click(step.selector)
+                        page.wait_for_timeout(step.waitAfter)
                 else:
                     # Single click (backward compatible)
                     if not selector:
@@ -660,14 +716,14 @@ class Scraper:
             print(f"[scrape_links_browser] ERROR: Unknown site: {site_id}")
             return {"success": False, "error": f"Unknown site: {site_id}"}
 
-        base_url = config["baseUrl"]
-        links_config = config.get("links", {})
-        start_urls = links_config.get("startUrls", [""])
-        wait_for = links_config.get("waitFor")
-        wait_for_timeout = links_config.get("waitForTimeoutMs", 15000)
-        wait_until = links_config.get("waitUntil", "domcontentloaded")
-        goto_timeout = links_config.get("gotoTimeoutMs", 30000)
-        pattern = links_config.get("pattern", "")
+        base_url = config.baseUrl
+        links_cfg = config.links
+        start_urls = links_cfg.startUrls
+        wait_for = links_cfg.waitFor
+        wait_for_timeout = links_cfg.waitForTimeoutMs
+        wait_until = links_cfg.waitUntil
+        goto_timeout = links_cfg.gotoTimeoutMs
+        pattern = links_cfg.pattern
 
         print(f"[scrape_links_browser] {base_url} ({len(start_urls)} start URLs)")
 
@@ -728,14 +784,14 @@ async def scrape_links_fetch(site_id: str) -> dict:
     if not config:
         return {"success": False, "error": f"Unknown site: {site_id}"}
 
-    base_url = config["baseUrl"]
-    links_config = config.get("links", {})
+    base_url = config.baseUrl
+    links_cfg = config.links
     start_urls = [
         base_url + path if path else base_url
-        for path in links_config.get("startUrls", [""])
+        for path in links_cfg.startUrls
     ]
-    max_depth = links_config.get("maxDepth", 2)
-    pattern = links_config.get("pattern", "")
+    max_depth = links_cfg.maxDepth
+    pattern = links_cfg.pattern
 
     all_links: set[str] = set()
     visited: set[str] = set()
@@ -834,9 +890,9 @@ async def get_sites(
     if include_test_paths:
         # Only include sites that have a testPath configured
         sites = [
-            {"id": site_id, "testPath": config["testPath"]}
+            {"id": site_id, "testPath": config.testPath}
             for site_id, config in sites_config.items()
-            if config.get("testPath")
+            if config.testPath
         ]
     else:
         sites = [{"id": site_id} for site_id, config in sites_config.items()]
@@ -884,21 +940,16 @@ async def get_site_links(
     cache_key = f"{site_id}:links"
 
     # Check cache first
-    try:
-        cached = cache[cache_key]
-        if cached and cached.get("count", 0) > 1:
-            age = time.time() - cached["timestamp"]
-            if age < max_age:
-                return LinksResponse(
-                    site_id=site_id,
-                    links=cached["links"],
-                    count=cached["count"],
-                )
-    except KeyError:
-        pass  # Not in cache
+    cached = get_cached(cache_key, max_age)
+    if cached and cached.get("count", 0) > 1:
+        return LinksResponse(
+            site_id=site_id,
+            links=cached["links"],
+            count=cached["count"],
+        )
 
     # Use browser mode for JS-heavy sites, fetch mode for static sites
-    if config.get("mode") == "browser":
+    if config.mode == "browser":
         scraper = Scraper()
         result = await scraper.scrape_links_browser.remote.aio(site_id)
     else:
@@ -912,11 +963,7 @@ async def get_site_links(
 
     # Cache if more than 1 link
     if count > 1:
-        cache[cache_key] = {
-            "links": links,
-            "count": count,
-            "timestamp": time.time(),
-        }
+        set_cached(cache_key, {"links": links, "count": count})
 
     return LinksResponse(
         site_id=site_id,
@@ -943,26 +990,21 @@ async def get_site_content(
         raise HTTPException(status_code=404, detail=f"Unknown site: {site_id}")
 
     if not path:
-        path = config.get("defaultPath", "")
+        path = config.defaultPath
     cache_key = f"{site_id}:{path}"
-    url = config["baseUrl"] + path
+    url = config.baseUrl + path
 
     # Check cache first
-    try:
-        cached = cache[cache_key]
-        if cached:
-            age = time.time() - cached["timestamp"]
-            if age < max_age:
-                return ContentResponse(
-                    site_id=site_id,
-                    path=path,
-                    content=cached["content"],
-                    content_length=len(cached["content"]),
-                    url=cached["url"],
-                    from_cache=True,
-                )
-    except KeyError:
-        pass  # Not in cache
+    cached = get_cached(cache_key, max_age)
+    if cached:
+        return ContentResponse(
+            site_id=site_id,
+            path=path,
+            content=cached["content"],
+            content_length=len(cached["content"]),
+            url=cached["url"],
+            from_cache=True,
+        )
 
     # Scrape fresh content (force=True if max_age=0 to also clear error tracking)
     scraper = Scraper()
@@ -973,11 +1015,7 @@ async def get_site_content(
 
     # Save to cache only if content is non-empty
     if result["content"]:
-        cache[cache_key] = {
-            "content": result["content"],
-            "url": result["url"],
-            "timestamp": time.time(),
-        }
+        set_cached(cache_key, {"content": result["content"], "url": result["url"]})
 
     return ContentResponse(
         site_id=site_id,
@@ -1019,8 +1057,7 @@ async def cache_keys(
         # Reconstruct URL
         config = sites_config.get(key_site_id)
         if config:
-            base_url = config.get("baseUrl", "")
-            url = base_url + path
+            url = config.baseUrl + path
             results.append({
                 "site_id": key_site_id,
                 "path": path,
@@ -1145,7 +1182,7 @@ async def index_site(
     # Get all links first
     links_response = await get_site_links(site_id, max_age=max_age)
     links = links_response.links
-    base_url = config["baseUrl"]
+    base_url = config.baseUrl
 
     # Extract paths from links
     paths = []
@@ -1165,18 +1202,13 @@ async def index_site(
     # Check cache for each path, separate into fresh vs stale
     paths_to_scrape = []
     cached_count = 0
-    now = time.time()
 
     for path in paths:
         cache_key = f"{site_id}:{path}"
-        try:
-            cached = cache[cache_key]
-            if cached and (now - cached["timestamp"]) < max_age:
-                cached_count += 1
-                continue  # Skip, cache is fresh
-        except KeyError:
-            pass
-        paths_to_scrape.append(path)
+        if get_cached(cache_key, max_age):
+            cached_count += 1
+        else:
+            paths_to_scrape.append(path)
 
     # Scrape stale/missing paths in parallel with concurrency limit
     scraper = Scraper()
@@ -1205,11 +1237,7 @@ async def index_site(
                 # Write to cache only if content is non-empty
                 if result["content"]:
                     cache_key = f"{site_id}:{path}"
-                    cache[cache_key] = {
-                        "content": result["content"],
-                        "url": result["url"],
-                        "timestamp": time.time(),
-                    }
+                    set_cached(cache_key, {"content": result["content"], "url": result["url"]})
             else:
                 failed += 1
                 errors.append({"path": path, "error": result.get("error", "unknown")})
@@ -1248,7 +1276,7 @@ async def download_site(
     # Get all links first
     links_response = await get_site_links(site_id, max_age=max_age)
     links = links_response.links
-    base_url = config["baseUrl"]
+    base_url = config.baseUrl
 
     # Extract paths from links
     paths = []
@@ -1273,17 +1301,14 @@ async def download_site(
         async with semaphore:
             cache_key = f"{site_id}:{path}"
             # Try cache first
-            try:
-                cached = cache[cache_key]
-                if cached and (time.time() - cached["timestamp"]) < max_age:
-                    return {
-                        "path": path,
-                        "content": cached["content"],
-                        "success": True,
-                        "from_cache": True
-                    }
-            except KeyError:
-                pass
+            cached = get_cached(cache_key, max_age)
+            if cached:
+                return {
+                    "path": path,
+                    "content": cached["content"],
+                    "success": True,
+                    "from_cache": True
+                }
 
             # Scrape if not cached
             result = await scraper.scrape_content.remote.aio(site_id, path)
@@ -1291,11 +1316,7 @@ async def download_site(
                 content = result["content"]
                 # Write to cache for future requests
                 if content:
-                    cache[cache_key] = {
-                        "content": content,
-                        "url": result["url"],
-                        "timestamp": time.time(),
-                    }
+                    set_cached(cache_key, {"content": content, "url": result["url"]})
                 return {
                     "path": path,
                     "content": content,
@@ -1355,7 +1376,7 @@ async def download_site(
             successful_count += 1
 
         # Add a README with metadata
-        readme_content = f"""# {config.get('name', site_id)} Documentation
+        readme_content = f"""# {config.name} Documentation
 
 Downloaded from: {base_url}
 Total pages: {len(paths)}
@@ -1441,7 +1462,6 @@ async def export_urls_as_zip(request: ExportRequest):
     # Fetch content for each resolved URL
     scraper = Scraper()
     semaphore = asyncio.Semaphore(50)
-    now = time.time()
 
     async def fetch_content(r: dict) -> dict:
         """Fetch content for a resolved URL."""
@@ -1459,16 +1479,13 @@ async def export_urls_as_zip(request: ExportRequest):
         }
 
         # Try cache first
-        try:
-            cached = cache[cache_key]
-            if cached and (now - cached["timestamp"]) < max_age:
-                result["success"] = True
-                result["from_cache"] = True
-                result["content"] = cached["content"]
-                result["content_length"] = len(cached["content"])
-                return result
-        except KeyError:
-            pass
+        cached = get_cached(cache_key, max_age)
+        if cached:
+            result["success"] = True
+            result["from_cache"] = True
+            result["content"] = cached["content"]
+            result["content_length"] = len(cached["content"])
+            return result
 
         # If cached_only, mark as miss
         if cached_only:
@@ -1488,11 +1505,7 @@ async def export_urls_as_zip(request: ExportRequest):
 
             # Cache the result
             if content:
-                cache[cache_key] = {
-                    "content": content,
-                    "url": scrape_result["url"],
-                    "timestamp": time.time(),
-                }
+                set_cached(cache_key, {"content": content, "url": scrape_result["url"]})
         else:
             result["error"] = scrape_result.get("error", "Unknown error")
 
