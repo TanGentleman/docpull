@@ -99,7 +99,7 @@ def normalize_url(url: str) -> str:
     - Lowercase scheme and host
     - Remove query/fragment
     - Collapse duplicate slashes in path
-    - Remove trailing slash (except for root "/")
+    - Remove trailing slash (always, for consistent prefix matching)
     """
     url = url.strip()
     p = urlparse(url)
@@ -107,11 +107,10 @@ def normalize_url(url: str) -> str:
     scheme = (p.scheme or "https").lower()
     netloc = (p.netloc or "").lower()
 
-    # Normalize path
-    path = p.path or "/"
+    # Normalize path - keep empty for root, always strip trailing slash
+    path = p.path or ""
     path = re.sub(r"/{2,}", "/", path)  # collapse //
-    if path != "/" and path.endswith("/"):
-        path = path[:-1]
+    path = path.rstrip("/")  # always remove trailing slash
 
     return urlunparse((scheme, netloc, path, "", "", ""))
 
@@ -134,21 +133,16 @@ def normalize_path(path: str) -> str:
     return "" if path == "/" else path
 
 
-# Site resolver with precomputed normalized baseUrls
-_site_resolver_cache: dict | None = None
-
-
 def get_site_resolver() -> dict:
     """Build site resolver mapping normalized baseUrls to site_ids.
 
     Returns dict with:
     - 'sites': list of (normalized_base, site_id) sorted by length desc (for longest-prefix match)
     - 'config': full sites config
-    """
-    global _site_resolver_cache
-    if _site_resolver_cache is not None:
-        return _site_resolver_cache
 
+    Not cached - rebuilds each call to pick up sites.json changes.
+    This is cheap (parse JSON + sort small list).
+    """
     sites_config = load_sites_config()
     sites = []
 
@@ -161,11 +155,10 @@ def get_site_resolver() -> dict:
     # Sort by length descending for longest-prefix match
     sites.sort(key=lambda x: len(x[0]), reverse=True)
 
-    _site_resolver_cache = {
+    return {
         "sites": sites,
         "config": sites_config,
     }
-    return _site_resolver_cache
 
 
 def resolve_url_to_site(url: str) -> tuple[str | None, str, str]:
@@ -809,6 +802,7 @@ async def root():
             "/sites/{site_id}/index": "POST - Fetch all pages in parallel",
             "/sites/{site_id}/download": "GET - Download all docs as ZIP file",
             "/export/zip": "POST - Export list of URLs as ZIP (auto-resolves sites)",
+            "/cache/keys": "GET - List cached URLs (content_only=true, site_id=optional)",
             "/cache/stats": "GET - Get cache statistics",
             "/cache/{site_id}": "DELETE - Clear cache for a site",
             "/errors": "GET/DELETE - List or clear all error tracking",
@@ -993,6 +987,50 @@ async def get_site_content(
         url=result["url"],
         from_cache=False,
     )
+
+
+@web_app.get("/cache/keys")
+async def cache_keys(
+    site_id: str = Query(default=None, description="Filter by site ID"),
+    content_only: bool = Query(default=True, description="Only content keys, not links"),
+):
+    """List all cached keys, optionally filtered by site.
+
+    Returns URLs reconstructed from cache keys.
+    """
+    sites_config = load_sites_config()
+    results = []
+
+    for key in cache.keys():
+        # Skip links keys if content_only
+        if content_only and key.endswith(":links"):
+            continue
+
+        parts = key.split(":", 1)
+        if len(parts) != 2:
+            continue
+
+        key_site_id, path = parts
+
+        # Filter by site if specified
+        if site_id and key_site_id != site_id:
+            continue
+
+        # Reconstruct URL
+        config = sites_config.get(key_site_id)
+        if config:
+            base_url = config.get("baseUrl", "")
+            url = base_url + path
+            results.append({
+                "site_id": key_site_id,
+                "path": path,
+                "url": url,
+            })
+
+    return {
+        "count": len(results),
+        "keys": results,
+    }
 
 
 @web_app.get("/cache/stats")
@@ -1379,17 +1417,26 @@ async def export_urls_as_zip(request: ExportRequest):
             "path": path,
         })
 
-    # Group by site for efficient fetching
+    # Group by site and dedupe by (site_id, normalized_path) to avoid duplicate zip entries
     by_site: dict[str, list[dict]] = {}
     unknown_urls: list[dict] = []
+    seen_paths: set[tuple[str, str]] = set()
+    deduped: list[dict] = []
+    dupe_count = 0
 
     for r in resolved:
         if r["site_id"]:
             by_site.setdefault(r["site_id"], []).append(r)
+            key = (r["site_id"], normalize_path(r["path"]))
+            if key not in seen_paths:
+                seen_paths.add(key)
+                deduped.append(r)
+            else:
+                dupe_count += 1
         else:
             unknown_urls.append(r)
 
-    print(f"[export_zip] Resolved to {len(by_site)} sites, {len(unknown_urls)} unknown")
+    print(f"[export_zip] Resolved to {len(by_site)} sites, {len(unknown_urls)} unknown, {dupe_count} dupes removed")
 
     # Fetch content for each resolved URL
     scraper = Scraper()
@@ -1451,8 +1498,8 @@ async def export_urls_as_zip(request: ExportRequest):
 
         return result
 
-    # Fetch all content in parallel
-    tasks = [fetch_content(r) for r in resolved if r["site_id"]]
+    # Fetch all content in parallel (using deduped list)
+    tasks = [fetch_content(r) for r in deduped]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     # Process results

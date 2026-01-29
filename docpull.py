@@ -187,6 +187,7 @@ def cmd_export(urls_file: str, output: str = "docs_export.zip", unzip: bool = Fa
         json=payload,
         headers=get_auth_headers(),
         timeout=600.0,  # 10 min for large exports
+        follow_redirects=True,
     )
     resp.raise_for_status()
 
@@ -420,7 +421,7 @@ def cmd_discover(url: str):
 
 
 def cmd_cache(action: str = "stats", site_id: str = None):
-    """Manage cache: stats, clear <site_id>, or clear-all."""
+    """Manage cache: stats, keys, clear <site_id>."""
     if action == "stats":
         resp = httpx.get(f"{API_BASE}/cache/stats", headers=get_auth_headers(), timeout=30.0)
         resp.raise_for_status()
@@ -432,12 +433,23 @@ def cmd_cache(action: str = "stats", site_id: str = None):
         print("\nBy site:")
         for site, count in data["by_site"].items():
             print(f"  {site}: {count}")
+    elif action == "keys":
+        params = {"content_only": "true"}
+        if site_id:
+            params["site_id"] = site_id
+        resp = httpx.get(f"{API_BASE}/cache/keys", params=params, headers=get_auth_headers(), timeout=60.0)
+        resp.raise_for_status()
+        data = resp.json()
+        for entry in data["keys"]:
+            print(entry["url"])
+        print(f"\nTotal: {data['count']} cached pages", file=sys.stderr)
     elif action == "clear" and site_id:
         resp = httpx.delete(f"{API_BASE}/cache/{site_id}", headers=get_auth_headers(), timeout=30.0)
         resp.raise_for_status()
         print(f"Cleared {resp.json()['deleted']} cache entries for {site_id}")
     else:
         print("Usage: docpull cache stats")
+        print("       docpull cache keys [site_id]")
         print("       docpull cache clear <site_id>")
 
 
@@ -459,6 +471,8 @@ Commands:
   export <urls.txt> --scrape       Scrape missing content (default: cached only)
   export -                         Read URLs from stdin
   cache stats                      Show cache statistics
+  cache keys                       List all cached URLs (pipe to export)
+  cache keys <site_id>             List cached URLs for a site
   cache clear <site_id>            Clear cache for a site
 
 Examples:
@@ -513,6 +527,10 @@ def main():
     elif cmd == "cache" and len(sys.argv) >= 2:
         if len(sys.argv) == 2 or sys.argv[2] == "stats":
             cmd_cache("stats")
+        elif sys.argv[2] == "keys":
+            # Optional site_id filter
+            site_id = sys.argv[3] if len(sys.argv) >= 4 else None
+            cmd_cache("keys", site_id)
         elif len(sys.argv) >= 4 and sys.argv[2] == "clear":
             cmd_cache("clear", sys.argv[3])
         else:
