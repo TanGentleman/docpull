@@ -186,7 +186,7 @@ def cmd_export(urls_file: str, output: str = "docs_export.zip", unzip: bool = Fa
         f"{API_BASE}/export/zip",
         json=payload,
         headers=get_auth_headers(),
-        timeout=120.0,
+        timeout=600.0,  # 10 min for large exports
     )
     resp.raise_for_status()
 
