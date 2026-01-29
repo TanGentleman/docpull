@@ -2,12 +2,19 @@
 
 Documentation scraper: CLI fetches docs via Modal API, saves as markdown.
 
+## Development
+
+Start the dev server (hot reloads on save):
+```bash
+modal serve content-scraper-api.py
+```
+
+Then use `docpull.py` immediately in another terminal. Changes to `content-scraper-api.py` or `sites.json` auto-reload—no restart needed.
+
 ## Commands
 
 ```bash
 uv sync                                # Install deps
-modal serve content-scraper-api.py     # Dev server
-modal deploy content-scraper-api.py    # Deploy
 
 python docpull.py sites                # List sites
 python docpull.py discover <url>       # Auto-discover selectors for new site
