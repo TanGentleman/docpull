@@ -32,7 +32,7 @@ def get_auth_headers() -> dict:
 
 def cmd_sites():
     """List all available site IDs."""
-    resp = httpx.get(f"{API_BASE}/sites", headers=get_auth_headers())
+    resp = httpx.get(f"{API_BASE}/sites", headers=get_auth_headers(), timeout=30.0)
     resp.raise_for_status()
     data = resp.json()
     for site in data["sites"]:
@@ -103,7 +103,7 @@ def cmd_index(site_id: str, max_concurrent: int = 50):
         f"{API_BASE}/sites/{site_id}/index",
         params={"max_concurrent": max_concurrent},
         headers=get_auth_headers(),
-        timeout=600.0,  # 10 minute timeout for large sites
+        timeout=120.0,
     )
     resp.raise_for_status()
     data = resp.json()
@@ -131,7 +131,7 @@ def cmd_download(site_id: str, output_dir: str = "."):
     resp = httpx.get(
         f"{API_BASE}/sites/{site_id}/download",
         headers=get_auth_headers(),
-        timeout=600.0,  # 10 minute timeout for large sites
+        timeout=120.0,
     )
     resp.raise_for_status()
 
@@ -186,7 +186,7 @@ def cmd_export(urls_file: str, output: str = "docs_export.zip", unzip: bool = Fa
         f"{API_BASE}/export/zip",
         json=payload,
         headers=get_auth_headers(),
-        timeout=600.0,
+        timeout=120.0,
     )
     resp.raise_for_status()
 
@@ -246,7 +246,7 @@ def cmd_discover(url: str):
             f"{API_BASE}/discover",
             params={"url": url},
             headers=get_auth_headers(),
-            timeout=60.0,
+            timeout=30.0,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -422,7 +422,7 @@ def cmd_discover(url: str):
 def cmd_cache(action: str = "stats", site_id: str = None):
     """Manage cache: stats, clear <site_id>, or clear-all."""
     if action == "stats":
-        resp = httpx.get(f"{API_BASE}/cache/stats", headers=get_auth_headers())
+        resp = httpx.get(f"{API_BASE}/cache/stats", headers=get_auth_headers(), timeout=30.0)
         resp.raise_for_status()
         data = resp.json()
         print(f"Total cache entries: {data['total_entries']}")
@@ -433,7 +433,7 @@ def cmd_cache(action: str = "stats", site_id: str = None):
         for site, count in data["by_site"].items():
             print(f"  {site}: {count}")
     elif action == "clear" and site_id:
-        resp = httpx.delete(f"{API_BASE}/cache/{site_id}", headers=get_auth_headers())
+        resp = httpx.delete(f"{API_BASE}/cache/{site_id}", headers=get_auth_headers(), timeout=30.0)
         resp.raise_for_status()
         print(f"Cleared {resp.json()['deleted']} cache entries for {site_id}")
     else:
