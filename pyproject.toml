@@ -1,7 +1,7 @@
 [project]
-name = "handy-apis"
+name = "docpull"
 version = "0.1.0"
-description = "Add your description here"
+description = "CLI tool to fetch and cache documentation as markdown"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

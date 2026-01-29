@@ -1,4 +1,4 @@
-# handy-apis
+# docpull
 
 Modal-based documentation scraper. Fetches docs from various sites and saves locally as markdown.
 
