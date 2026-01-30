@@ -233,7 +233,7 @@
     "cocoindex": {
       "name": "CocoIndex",
       "baseUrl": "https://cocoindex.io/docs",
-      "testPath": "/getting_started/quickstart",
+      "testPath": "/targets/neo4j",
       "mode": "fetch",
       "links": {
         "startUrls": [
@@ -252,6 +252,7 @@
     "crawl4ai": {
       "name": "Crawl4AI",
       "baseUrl": "https://docs.crawl4ai.com",
+      "testPath": "/core/examples",
       "mode": "fetch",
       "links": {
         "startUrls": [
@@ -270,6 +271,7 @@
     "opencode": {
       "name": "OpenCode",
       "baseUrl": "https://opencode.ai/docs",
+      "testPath": "/cli",
       "mode": "fetch",
       "links": {
         "startUrls": [
@@ -288,6 +290,7 @@
     "mistral": {
       "name": "Mistral",
       "baseUrl": "https://docs.mistral.ai",
+      "testPath": "/getting-started/quickstart",
       "mode": "fetch",
       "links": {
         "startUrls": [
@@ -301,8 +304,7 @@
         "waitFor": "main",
         "selector": "main",
         "method": "inner_html"
-      },
-      "testPath": "/getting-started/quickstart"
+      }
     }
   }
 }
