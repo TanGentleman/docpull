@@ -53,6 +53,8 @@ cache = modal.Dict.from_name("scraper-cache", create_if_missing=True)
 # Modal Dict for tracking failed links
 error_tracker = modal.Dict.from_name("scraper-errors", create_if_missing=True)
 
+IS_PROD = False
+
 DEFAULT_MAX_AGE = 3600 * 24 * 7  # 7 days
 ERROR_THRESHOLD = 3  # Skip links that have failed this many times
 ERROR_EXPIRY = 86400  # 24 hours - errors auto-expire
@@ -1819,7 +1821,7 @@ def refresh_cache():
 
 @app.function()
 @modal.concurrent(max_inputs=100)
-@modal.asgi_app(requires_proxy_auth=True)
+@modal.asgi_app(requires_proxy_auth=IS_PROD)
 def fastapi_app():
     """FastAPI app with concurrent request handling."""
     return web_app
