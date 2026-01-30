@@ -325,7 +325,7 @@ def get_site_resolver() -> dict:
     sites = []
 
     for site_id, config in sites_config.items():
-        base_url = config.get("baseUrl", "")
+        base_url = config.baseUrl
         if base_url:
             norm_base = normalize_url(base_url)
             sites.append((norm_base, site_id))
