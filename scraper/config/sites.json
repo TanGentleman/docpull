@@ -324,6 +324,25 @@
         "selector": "//button[@aria-label='Copy page']",
         "method": "click_copy"
       }
+    },
+    "promptfoo": {
+      "name": "promptfoo",
+      "baseUrl": "https://www.promptfoo.dev/docs",
+      "testPath": "/guides/sandboxed-code-evals",
+      "mode": "fetch",
+      "links": {
+        "startUrls": [
+          ""
+        ],
+        "pattern": "/docs",
+        "maxDepth": 2
+      },
+      "content": {
+        "mode": "browser",
+        "waitFor": "main",
+        "selector": "main",
+        "method": "inner_html"
+      }
     }
   }
 }
