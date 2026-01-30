@@ -24,6 +24,13 @@ python docpull.py index <site>         # Bulk fetch all pages
 python docpull.py download <site>      # Download site as ZIP
 python docpull.py export urls.txt      # Export URLs to ZIP (auto-resolves sites)
 python docpull.py export urls.txt --unzip --scrape  # Export, scrape missing, extract
+
+python docpull.py bulk urls.txt        # Submit bulk job (fire-and-forget)
+python docpull.py bulk urls.txt --poll # Submit and wait for completion
+python docpull.py job <job_id>         # Check job status
+python docpull.py job <job_id> --watch # Watch live progress
+python docpull.py jobs                 # List recent jobs
+
 python docpull.py cache stats          # Cache stats
 python docpull.py cache clear <site>   # Clear cache
 ```
@@ -32,6 +39,7 @@ python docpull.py cache clear <site>   # Clear cache
 
 - `docpull.py` - CLI client
 - `content-scraper-api.py` - Modal API (FastAPI + Playwright)
+- `scraper/bulk.py` - Bulk job processing logic
 - `scraper/config/sites.json` - Site configs
 
 ## Adding a Site (Fast Way)

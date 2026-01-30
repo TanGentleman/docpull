@@ -459,6 +459,199 @@ def export_cmd(
         print("Extracted to ./docs/", file=sys.stderr)
 
 
+# --- Bulk Job Commands ---
+
+
+@app.command()
+def bulk(
+    urls_file: Annotated[str, typer.Argument(help="Path to file with URLs (one per line), or '-' for stdin")],
+    poll: Annotated[bool, typer.Option("--poll", "-p", help="Poll for job completion")] = False,
+    interval: Annotated[int, typer.Option("--interval", "-i", help="Polling interval in seconds")] = 2,
+):
+    """Submit a bulk scrape job (fire-and-forget).
+
+    Unlike 'export', this spawns parallel workers and returns immediately.
+    Use 'job <job_id>' to check progress, or --poll to wait for completion.
+
+    Accepts plain text (one URL per line) or JSON files (with *_links array).
+    """
+    import time as _time
+
+    # Read URLs from file or stdin
+    if urls_file == "-":
+        urls = [line.strip() for line in sys.stdin if line.strip() and not line.startswith("#")]
+    else:
+        with open(urls_file) as f:
+            content = f.read()
+
+        # Try JSON first (for *_links.json files)
+        if urls_file.endswith(".json"):
+            try:
+                data = json.loads(content)
+                # Find the first key ending in _links
+                for key in data:
+                    if key.endswith("_links") and isinstance(data[key], list):
+                        urls = data[key]
+                        break
+                else:
+                    # Fallback: if it's a list directly
+                    urls = data if isinstance(data, list) else []
+            except json.JSONDecodeError:
+                urls = []
+        else:
+            # Plain text: one URL per line
+            urls = [line.strip() for line in content.splitlines() if line.strip() and not line.startswith("#")]
+
+    if not urls:
+        print("Error: No URLs provided", file=sys.stderr)
+        raise typer.Exit(1)
+
+    print(f"Submitting bulk job with {len(urls)} URLs...", file=sys.stderr)
+
+    resp = httpx.post(
+        f"{API_BASE}/jobs/bulk",
+        json={"urls": urls},
+        headers=get_auth_headers(),
+        timeout=60.0,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    job_id = data.get("job_id")
+    if not job_id:
+        print(f"No scrapeable URLs found", file=sys.stderr)
+        raise typer.Exit(0)
+
+    print(f"\nJob submitted: {job_id}", file=sys.stderr)
+    print(f"Batches: {data.get('batches', 0)}", file=sys.stderr)
+    print(f"Sites: {data.get('input', {}).get('sites', [])}", file=sys.stderr)
+    print(f"To scrape: {data.get('input', {}).get('to_scrape', 0)}", file=sys.stderr)
+
+    if not poll:
+        print(f"\nCheck progress: python docpull.py job {job_id}", file=sys.stderr)
+        print(job_id)  # Print job_id to stdout for scripting
+        return
+
+    # Poll for completion
+    print("\nPolling for completion...", file=sys.stderr)
+    while True:
+        _time.sleep(interval)
+        status_resp = httpx.get(
+            f"{API_BASE}/jobs/{job_id}",
+            headers=get_auth_headers(),
+            timeout=30.0,
+        )
+        status_resp.raise_for_status()
+        status = status_resp.json()
+
+        pct = status.get("progress_pct", 0)
+        progress = status.get("progress", {})
+        elapsed = status.get("elapsed_seconds", 0)
+        print(
+            f"  [{elapsed:.1f}s] {pct}% - success: {progress.get('success', 0)}, "
+            f"skipped: {progress.get('skipped', 0)}, failed: {progress.get('failed', 0)}",
+            file=sys.stderr,
+        )
+
+        if status.get("status") == "completed":
+            print(f"\nJob completed in {elapsed:.1f}s", file=sys.stderr)
+            if status.get("errors"):
+                print(f"Errors ({len(status['errors'])}):", file=sys.stderr)
+                for err in status["errors"][:5]:
+                    print(f"  {err.get('path', '?')}: {err.get('error', '?')[:60]}", file=sys.stderr)
+            break
+
+
+@app.command()
+def job(
+    job_id: Annotated[str, typer.Argument(help="Job ID to check")],
+    watch: Annotated[bool, typer.Option("--watch", "-w", help="Watch until completion")] = False,
+    interval: Annotated[int, typer.Option("--interval", "-i", help="Watch interval in seconds")] = 2,
+):
+    """Check status of a bulk scrape job."""
+    import time as _time
+
+    def fetch_status():
+        resp = httpx.get(
+            f"{API_BASE}/jobs/{job_id}",
+            headers=get_auth_headers(),
+            timeout=30.0,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def print_status(data):
+        print(f"Job: {data.get('job_id')}")
+        print(f"Status: {data.get('status')}")
+        print(f"Progress: {data.get('progress_pct', 0)}%")
+        print(f"Elapsed: {data.get('elapsed_seconds', 0):.1f}s")
+        print(f"\nInput:")
+        inp = data.get("input", {})
+        print(f"  Total URLs: {inp.get('total_urls', 0)}")
+        print(f"  To scrape: {inp.get('to_scrape', 0)}")
+        print(f"  Assets: {inp.get('assets', 0)}")
+        print(f"  Unknown: {inp.get('unknown', 0)}")
+        print(f"  Sites: {inp.get('sites', [])}")
+        print(f"\nProgress:")
+        prog = data.get("progress", {})
+        print(f"  Completed: {prog.get('completed', 0)}")
+        print(f"  Success: {prog.get('success', 0)}")
+        print(f"  Skipped: {prog.get('skipped', 0)}")
+        print(f"  Failed: {prog.get('failed', 0)}")
+        workers = data.get("workers", {})
+        print(f"\nWorkers: {workers.get('completed', 0)}/{workers.get('total', 0)}")
+        errors = data.get("errors", [])
+        if errors:
+            print(f"\nErrors ({len(errors)}):")
+            for err in errors[:10]:
+                print(f"  {err.get('path', '?')}: {err.get('error', '?')[:60]}")
+
+    if not watch:
+        data = fetch_status()
+        print_status(data)
+        return
+
+    # Watch mode
+    while True:
+        data = fetch_status()
+        # Clear screen and print
+        print("\033[2J\033[H", end="")  # Clear screen
+        print_status(data)
+
+        if data.get("status") == "completed":
+            break
+        _time.sleep(interval)
+
+
+@app.command()
+def jobs(
+    limit: Annotated[int, typer.Option("--limit", "-n", help="Max jobs to show")] = 20,
+):
+    """List recent bulk scrape jobs."""
+    resp = httpx.get(
+        f"{API_BASE}/jobs",
+        params={"limit": limit},
+        headers=get_auth_headers(),
+        timeout=30.0,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    jobs_list = data.get("jobs", [])
+    if not jobs_list:
+        print("No jobs found", file=sys.stderr)
+        return
+
+    # Print header
+    print(f"{'JOB ID':<10} {'STATUS':<12} {'PROGRESS':<12} {'SITES'}")
+    print("-" * 60)
+    for j in jobs_list:
+        sites = ", ".join(j.get("sites", [])[:3])
+        if len(j.get("sites", [])) > 3:
+            sites += f" +{len(j['sites']) - 3}"
+        print(f"{j.get('job_id', '?'):<10} {j.get('status', '?'):<12} {j.get('progress', '?'):<12} {sites}")
+
+
 # --- Cache subcommands ---
 
 

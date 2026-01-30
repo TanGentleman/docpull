@@ -7,19 +7,28 @@
 import asyncio
 import io
 import json
-import math
 import re
 import time
-import uuid
 import zipfile
-from enum import Enum
-from pathlib import Path, PurePosixPath
-from urllib.parse import unquote, urljoin, urlparse, urlunparse
+from pathlib import Path
+from urllib.parse import urljoin, urlparse, urlunparse
 
 import modal
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import PlainTextResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+
+from scraper.bulk import (
+    ASSET_EXTENSIONS,
+    DEFAULT_DELAY_MS,
+    USER_AGENT,
+    JobStatus,
+    calculate_batches,
+    create_job,
+    is_asset_url,
+    jobs,
+    update_job_progress,
+)
 
 # Modal image with Playwright
 playwright_image = (
@@ -34,7 +43,7 @@ playwright_image = (
         "playwright install chromium",
     )
     .pip_install("fastapi[standard]", "pydantic", "httpx", "markdownify")
-    .add_local_file("scraper/config/sites.json", "/root/sites.json")
+    .add_local_dir("scraper", "/root/scraper")
 )
 
 app = modal.App("content-scraper-api", image=playwright_image)
@@ -45,25 +54,9 @@ cache = modal.Dict.from_name("scraper-cache", create_if_missing=True)
 # Modal Dict for tracking failed links
 error_tracker = modal.Dict.from_name("scraper-errors", create_if_missing=True)
 
-# Modal Dict for job tracking
-jobs = modal.Dict.from_name("scrape-jobs", create_if_missing=True)
-
 DEFAULT_MAX_AGE = 3600 * 48  # 48 hours
 ERROR_THRESHOLD = 3  # Skip links that have failed this many times
 ERROR_EXPIRY = 86400  # 24 hours - errors auto-expire
-
-# Bulk job constants
-MAX_CONTAINERS = 100
-DEFAULT_DELAY_MS = 1000
-USER_AGENT = "DocPull/1.0 (+https://github.com/TanGentleman/docpull) documentation archiver"
-
-ASSET_EXTENSIONS = {
-    ".pdf", ".zip", ".tar", ".gz", ".tgz", ".rar", ".7z",
-    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp",
-    ".mp4", ".mp3", ".wav", ".webm", ".mov",
-    ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-    ".exe", ".dmg", ".pkg", ".deb", ".rpm",
-}
 
 
 # --- Site Config Models ---
@@ -125,101 +118,6 @@ def set_cached(cache_key: str, data: dict) -> None:
     cache[cache_key] = {**data, "timestamp": time.time()}
 
 
-# --- Job Status & Helpers ---
-class JobStatus(str, Enum):
-    PENDING = "pending"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-
-
-def is_asset_url(url: str) -> bool:
-    """Check if URL points to a binary asset."""
-    path = unquote(urlparse(url).path)
-    return PurePosixPath(path).suffix.lower() in ASSET_EXTENSIONS
-
-
-def filter_and_group_urls(urls: list[str]) -> dict:
-    """Filter assets and group by site."""
-    by_site: dict[str, list[str]] = {}
-    assets, unknown = [], []
-
-    for url in urls:
-        site_id, path, _ = resolve_url_to_site(url)
-        if not site_id:
-            unknown.append(url)
-        elif is_asset_url(url):
-            assets.append({"url": url, "site_id": site_id, "path": path})
-        else:
-            by_site.setdefault(site_id, []).append(path)
-
-    return {"by_site": by_site, "assets": assets, "unknown": unknown}
-
-
-def create_job(urls: list[str], by_site: dict, assets: list, unknown: list) -> str:
-    """Create a new job entry and return job_id."""
-    job_id = str(uuid.uuid4())[:8]
-    jobs[job_id] = {
-        "status": JobStatus.PENDING,
-        "created_at": time.time(),
-        "updated_at": time.time(),
-        "input": {
-            "total_urls": len(urls),
-            "to_scrape": sum(len(p) for p in by_site.values()),
-            "assets": len(assets),
-            "unknown": len(unknown),
-            "sites": list(by_site.keys()),
-        },
-        "progress": {"completed": 0, "success": 0, "skipped": 0, "failed": 0},
-        "workers": {"total": 0, "completed": 0},
-        "errors": [],
-    }
-    return job_id
-
-
-def update_job_progress(job_id: str, result: dict):
-    """Update job progress from a worker result."""
-    try:
-        job = jobs[job_id]
-        job["progress"]["completed"] += result.get("success", 0) + result.get("skipped", 0) + result.get("failed", 0)
-        job["progress"]["success"] += result.get("success", 0)
-        job["progress"]["skipped"] += result.get("skipped", 0)
-        job["progress"]["failed"] += result.get("failed", 0)
-        job["workers"]["completed"] += 1
-        job["updated_at"] = time.time()
-
-        if result.get("errors") and len(job["errors"]) < 20:
-            job["errors"].extend(result["errors"][:20 - len(job["errors"])])
-
-        if job["workers"]["completed"] >= job["workers"]["total"]:
-            job["status"] = JobStatus.COMPLETED
-
-        jobs[job_id] = job
-    except Exception as e:
-        print(f"[update_job_progress] Error: {e}")
-
-
-def calculate_batches(by_site: dict[str, list[str]], max_containers: int = MAX_CONTAINERS) -> list[dict]:
-    """Distribute containers across sites proportionally."""
-    if not by_site:
-        return []
-
-    total_urls = sum(len(paths) for paths in by_site.values())
-    batches = []
-
-    for site_id, paths in by_site.items():
-        if not paths:
-            continue
-
-        # Proportional allocation (min 1, max len(paths))
-        containers = max(1, min(len(paths), round(len(paths) / total_urls * max_containers)))
-        batch_size = math.ceil(len(paths) / containers)
-
-        for i in range(0, len(paths), batch_size):
-            batches.append({"site_id": site_id, "paths": paths[i:i + batch_size]})
-
-    return batches
-
-
 # --- Load sites config ---
 def load_sites_config() -> dict[str, SiteConfig]:
     """Load and validate sites configuration from embedded JSON file.
@@ -227,7 +125,7 @@ def load_sites_config() -> dict[str, SiteConfig]:
     Returns dict mapping site_id to validated SiteConfig.
     Raises ValidationError if config is invalid.
     """
-    config_path = Path("/root/sites.json")
+    config_path = Path("/root/scraper/config/sites.json")
     if not config_path.exists():
         # Fallback to local path during development
         config_path = Path(__file__).parent / "scraper" / "config" / "sites.json"
@@ -356,6 +254,23 @@ def resolve_url_to_site(url: str) -> tuple[str | None, str, str]:
             return (site_id, path, norm_url)
 
     return (None, "", norm_url)
+
+
+def filter_and_group_urls(urls: list[str]) -> dict:
+    """Filter assets and group URLs by site for bulk processing."""
+    by_site: dict[str, list[str]] = {}
+    assets, unknown = [], []
+
+    for url in urls:
+        site_id, path, _ = resolve_url_to_site(url)
+        if not site_id:
+            unknown.append(url)
+        elif is_asset_url(url):
+            assets.append({"url": url, "site_id": site_id, "path": path})
+        else:
+            by_site.setdefault(site_id, []).append(path)
+
+    return {"by_site": by_site, "assets": assets, "unknown": unknown}
 
 
 def zip_path_for(site_id: str, path: str) -> str:
