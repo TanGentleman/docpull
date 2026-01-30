@@ -17,13 +17,19 @@ image = modal.Image.debian_slim(python_version="3.11").pip_install(
     "fastapi[standard]", "httpx"
 )
 
-app = modal.App("docpull-ui", image=image)
+app = modal.App("docpull", image=image)
+
+IS_PROD = False
+DEV_URL = "https://tangentleman--content-scraper-api-fastapi-app-dev.modal.run"
 
 # Get scraper API URL from environment or derive from Modal
-SCRAPER_API_URL = os.environ.get(
-    "SCRAPER_API_URL",
-    "https://YOUR_MODAL_USERNAME--content-scraper-api-fastapi-app.modal.run"
-)
+def get_scraper_api_url():
+    scraper_api_url = os.environ.get("SCRAPER_API_URL")
+    if scraper_api_url:
+        return scraper_api_url
+    if IS_PROD:
+        raise ValueError("SCRAPER_API_URL is not set")
+    return DEV_URL
 
 web_app = FastAPI(title="Docpull UI")
 
@@ -55,7 +61,7 @@ async def call_scraper_api(
     if "modal-secret" in request.headers:
         headers["Modal-Secret"] = request.headers["modal-secret"]
 
-    url = f"{SCRAPER_API_URL}{path}"
+    url = f"{get_scraper_api_url()}{path}"
 
     async with httpx.AsyncClient(timeout=120.0) as client:
         if method == "GET":
@@ -622,7 +628,7 @@ async def list_jobs(request: Request):
 
 # --- Modal Entrypoint ---
 @app.function()
-@modal.asgi_app(requires_proxy_auth=True)
+@modal.asgi_app(requires_proxy_auth=IS_PROD)
 def ui():
     """Serve the UI app."""
     return web_app
