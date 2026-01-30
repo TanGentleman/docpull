@@ -7,11 +7,14 @@
 import asyncio
 import io
 import json
+import math
 import re
 import time
+import uuid
 import zipfile
-from pathlib import Path
-from urllib.parse import urljoin, urlparse, urlunparse
+from enum import Enum
+from pathlib import Path, PurePosixPath
+from urllib.parse import unquote, urljoin, urlparse, urlunparse
 
 import modal
 from fastapi import FastAPI, HTTPException, Query
@@ -42,9 +45,25 @@ cache = modal.Dict.from_name("scraper-cache", create_if_missing=True)
 # Modal Dict for tracking failed links
 error_tracker = modal.Dict.from_name("scraper-errors", create_if_missing=True)
 
+# Modal Dict for job tracking
+jobs = modal.Dict.from_name("scrape-jobs", create_if_missing=True)
+
 DEFAULT_MAX_AGE = 3600 * 48  # 48 hours
 ERROR_THRESHOLD = 3  # Skip links that have failed this many times
 ERROR_EXPIRY = 86400  # 24 hours - errors auto-expire
+
+# Bulk job constants
+MAX_CONTAINERS = 100
+DEFAULT_DELAY_MS = 1000
+USER_AGENT = "DocPull/1.0 (+https://github.com/TanGentleman/docpull) documentation archiver"
+
+ASSET_EXTENSIONS = {
+    ".pdf", ".zip", ".tar", ".gz", ".tgz", ".rar", ".7z",
+    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp",
+    ".mp4", ".mp3", ".wav", ".webm", ".mov",
+    ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+    ".exe", ".dmg", ".pkg", ".deb", ".rpm",
+}
 
 
 # --- Site Config Models ---
@@ -104,6 +123,101 @@ def get_cached(cache_key: str, max_age: int) -> dict | None:
 def set_cached(cache_key: str, data: dict) -> None:
     """Set cache entry with timestamp."""
     cache[cache_key] = {**data, "timestamp": time.time()}
+
+
+# --- Job Status & Helpers ---
+class JobStatus(str, Enum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+
+
+def is_asset_url(url: str) -> bool:
+    """Check if URL points to a binary asset."""
+    path = unquote(urlparse(url).path)
+    return PurePosixPath(path).suffix.lower() in ASSET_EXTENSIONS
+
+
+def filter_and_group_urls(urls: list[str]) -> dict:
+    """Filter assets and group by site."""
+    by_site: dict[str, list[str]] = {}
+    assets, unknown = [], []
+
+    for url in urls:
+        site_id, path, _ = resolve_url_to_site(url)
+        if not site_id:
+            unknown.append(url)
+        elif is_asset_url(url):
+            assets.append({"url": url, "site_id": site_id, "path": path})
+        else:
+            by_site.setdefault(site_id, []).append(path)
+
+    return {"by_site": by_site, "assets": assets, "unknown": unknown}
+
+
+def create_job(urls: list[str], by_site: dict, assets: list, unknown: list) -> str:
+    """Create a new job entry and return job_id."""
+    job_id = str(uuid.uuid4())[:8]
+    jobs[job_id] = {
+        "status": JobStatus.PENDING,
+        "created_at": time.time(),
+        "updated_at": time.time(),
+        "input": {
+            "total_urls": len(urls),
+            "to_scrape": sum(len(p) for p in by_site.values()),
+            "assets": len(assets),
+            "unknown": len(unknown),
+            "sites": list(by_site.keys()),
+        },
+        "progress": {"completed": 0, "success": 0, "skipped": 0, "failed": 0},
+        "workers": {"total": 0, "completed": 0},
+        "errors": [],
+    }
+    return job_id
+
+
+def update_job_progress(job_id: str, result: dict):
+    """Update job progress from a worker result."""
+    try:
+        job = jobs[job_id]
+        job["progress"]["completed"] += result.get("success", 0) + result.get("skipped", 0) + result.get("failed", 0)
+        job["progress"]["success"] += result.get("success", 0)
+        job["progress"]["skipped"] += result.get("skipped", 0)
+        job["progress"]["failed"] += result.get("failed", 0)
+        job["workers"]["completed"] += 1
+        job["updated_at"] = time.time()
+
+        if result.get("errors") and len(job["errors"]) < 20:
+            job["errors"].extend(result["errors"][:20 - len(job["errors"])])
+
+        if job["workers"]["completed"] >= job["workers"]["total"]:
+            job["status"] = JobStatus.COMPLETED
+
+        jobs[job_id] = job
+    except Exception as e:
+        print(f"[update_job_progress] Error: {e}")
+
+
+def calculate_batches(by_site: dict[str, list[str]], max_containers: int = MAX_CONTAINERS) -> list[dict]:
+    """Distribute containers across sites proportionally."""
+    if not by_site:
+        return []
+
+    total_urls = sum(len(paths) for paths in by_site.values())
+    batches = []
+
+    for site_id, paths in by_site.items():
+        if not paths:
+            continue
+
+        # Proportional allocation (min 1, max len(paths))
+        containers = max(1, min(len(paths), round(len(paths) / total_urls * max_containers)))
+        batch_size = math.ceil(len(paths) / containers)
+
+        for i in range(0, len(paths), batch_size):
+            batches.append({"site_id": site_id, "paths": paths[i:i + batch_size]})
+
+    return batches
 
 
 # --- Load sites config ---
@@ -773,6 +887,125 @@ class Scraper:
             context.close()
 
 
+# --- SiteWorker for Bulk Jobs ---
+@app.cls(timeout=600, retries=1, image=playwright_image)
+class SiteWorker:
+    """Worker for bulk batch processing with browser lifecycle."""
+
+    @modal.enter()
+    def start_browser(self):
+        """Launch browser once when container starts."""
+        from playwright.sync_api import sync_playwright
+
+        self.pw = sync_playwright().start()
+        self.browser = self.pw.chromium.launch()
+        print("SiteWorker browser started")
+
+    @modal.exit()
+    def close_browser(self):
+        """Clean up browser when container exits."""
+        self.browser.close()
+        self.pw.stop()
+        print("SiteWorker browser closed")
+
+    @modal.method()
+    def process_batch(
+        self,
+        job_id: str,
+        site_id: str,
+        paths: list[str],
+        delay_ms: int = DEFAULT_DELAY_MS,
+        max_age: int = DEFAULT_MAX_AGE,
+    ) -> dict:
+        """Process a batch of paths for a single site."""
+        config = load_sites_config().get(site_id)
+        if not config:
+            result = {"success": 0, "failed": len(paths), "skipped": 0, "errors": [{"path": "*", "error": f"Unknown site: {site_id}"}]}
+            update_job_progress(job_id, result)
+            return result
+
+        content_cfg = config.content
+        permissions = ["clipboard-read", "clipboard-write"] if content_cfg.method == "click_copy" else []
+
+        context = self.browser.new_context(user_agent=USER_AGENT, permissions=permissions)
+        page = context.new_page()
+        results = {"success": 0, "skipped": 0, "failed": 0, "errors": []}
+
+        try:
+            for i, path in enumerate(paths):
+                cache_key = f"{site_id}:{path}"
+                url = config.baseUrl + path
+
+                # Skip if cached
+                if get_cached(cache_key, max_age):
+                    results["skipped"] += 1
+                    continue
+
+                # Skip if error threshold exceeded
+                try:
+                    err = error_tracker.get(cache_key, {})
+                    if err.get("count", 0) >= ERROR_THRESHOLD and time.time() - err.get("timestamp", 0) < ERROR_EXPIRY:
+                        results["skipped"] += 1
+                        continue
+                except KeyError:
+                    pass
+
+                try:
+                    page.goto(url, wait_until=content_cfg.waitUntil, timeout=content_cfg.gotoTimeoutMs)
+
+                    # Auto-derive waitFor
+                    wait_for = content_cfg.waitFor
+                    if not wait_for:
+                        if content_cfg.clickSequence:
+                            wait_for = content_cfg.clickSequence[0].selector
+                        elif content_cfg.selector:
+                            wait_for = content_cfg.selector
+
+                    if wait_for:
+                        page.wait_for_selector(wait_for, state="visible", timeout=content_cfg.waitForTimeoutMs)
+
+                    if content_cfg.method == "click_copy":
+                        if content_cfg.clickSequence:
+                            for step in content_cfg.clickSequence:
+                                page.click(step.selector)
+                                page.wait_for_timeout(step.waitAfter)
+                        else:
+                            page.click(content_cfg.selector)
+                            page.wait_for_timeout(1000)
+                        content = page.evaluate("() => navigator.clipboard.readText()")
+                    else:
+                        el = page.query_selector(content_cfg.selector)
+                        content = html_to_markdown(el.inner_html()) if el else ""
+
+                    if content:
+                        set_cached(cache_key, {"content": content, "url": url})
+                        results["success"] += 1
+                        try:
+                            error_tracker.pop(cache_key, None)
+                        except Exception:
+                            pass
+                    else:
+                        results["failed"] += 1
+                        results["errors"].append({"path": path, "error": "Empty content"})
+
+                except Exception as e:
+                    results["failed"] += 1
+                    results["errors"].append({"path": path, "error": str(e)[:200]})
+                    try:
+                        err = error_tracker.get(cache_key, {})
+                        error_tracker[cache_key] = {"count": err.get("count", 0) + 1, "last_error": str(e)[:200], "timestamp": time.time()}
+                    except Exception:
+                        pass
+
+                if i < len(paths) - 1:
+                    time.sleep(delay_ms / 1000)
+        finally:
+            context.close()
+
+        update_job_progress(job_id, results)
+        return results
+
+
 # --- HTTP-based Link Discovery ---
 @app.function(timeout=300)
 async def scrape_links_fetch(site_id: str) -> dict:
@@ -848,7 +1081,7 @@ async def root():
     """API root with endpoint documentation."""
     return {
         "name": "Content Scraper API",
-        "version": "7.0",
+        "version": "8.0",
         "storage": "Modal Dict (7-day TTL)",
         "endpoints": {
             "/sites": "GET - List available site IDs",
@@ -858,6 +1091,9 @@ async def root():
             "/sites/{site_id}/index": "POST - Fetch all pages in parallel",
             "/sites/{site_id}/download": "GET - Download all docs as ZIP file",
             "/export/zip": "POST - Export list of URLs as ZIP (auto-resolves sites)",
+            "/jobs/bulk": "POST - Submit bulk scrape job (fire-and-forget)",
+            "/jobs/{job_id}": "GET - Get job status",
+            "/jobs": "GET - List recent jobs",
             "/cache/keys": "GET - List cached URLs (content_only=true, site_id=optional)",
             "/cache/stats": "GET - Get cache statistics",
             "/cache/{site_id}": "DELETE - Clear cache for a site",
@@ -871,6 +1107,7 @@ async def root():
             "Parallel bulk indexing (50 concurrent)",
             "ZIP download with folder structure",
             "URL-based export with auto site resolution (longest-prefix match)",
+            "Bulk job queue with fire-and-forget workers (up to 100 containers)",
         ],
     }
 
@@ -1621,7 +1858,98 @@ async def export_urls_as_zip(request: ExportRequest):
     )
 
 
-@app.function()
+# --- Bulk Job Endpoints ---
+class BulkScrapeRequest(BaseModel):
+    """Request body for bulk scrape jobs."""
+    urls: list[str]
+    max_age: int = DEFAULT_MAX_AGE
+
+
+@web_app.post("/jobs/bulk")
+async def submit_bulk_job(request: BulkScrapeRequest):
+    """Submit a bulk scrape job (fire-and-forget).
+
+    Groups URLs by site, distributes across workers, and returns immediately.
+    Use GET /jobs/{job_id} to check progress.
+    """
+    if not request.urls:
+        raise HTTPException(400, "No URLs provided")
+
+    grouped = filter_and_group_urls(request.urls)
+
+    # Cache asset links
+    for asset in grouped["assets"]:
+        set_cached(f"{asset['site_id']}:{asset['path']}:asset", {"url": asset["url"], "type": "asset"})
+
+    if not grouped["by_site"]:
+        return {"job_id": "", "status": "completed", "message": "No scrapeable URLs"}
+
+    job_id = create_job(request.urls, grouped["by_site"], grouped["assets"], grouped["unknown"])
+    batches = calculate_batches(grouped["by_site"])
+
+    job = jobs[job_id]
+    job["status"] = JobStatus.IN_PROGRESS
+    job["workers"]["total"] = len(batches)
+    jobs[job_id] = job
+
+    # Spawn workers (fire-and-forget)
+    worker = SiteWorker()
+    for batch in batches:
+        worker.process_batch.spawn(job_id, batch["site_id"], batch["paths"], max_age=request.max_age)
+
+    print(f"[submit_bulk_job] job_id={job_id}, batches={len(batches)}, sites={list(grouped['by_site'].keys())}")
+
+    return {
+        "job_id": job_id,
+        "status": "in_progress",
+        "batches": len(batches),
+        "input": job["input"],
+    }
+
+
+@web_app.get("/jobs/{job_id}")
+async def get_job_status(job_id: str):
+    """Get the status of a bulk scrape job."""
+    try:
+        job = jobs[job_id]
+    except KeyError:
+        raise HTTPException(404, f"Job not found: {job_id}")
+
+    total = job["input"]["to_scrape"]
+    pct = round((job["progress"]["completed"] / total) * 100, 1) if total else 100
+
+    return {
+        "job_id": job_id,
+        "status": job["status"],
+        "progress_pct": pct,
+        "elapsed_seconds": round(time.time() - job["created_at"], 1),
+        "input": job["input"],
+        "progress": job["progress"],
+        "workers": job["workers"],
+        "errors": job["errors"][:10],
+    }
+
+
+@web_app.get("/jobs")
+async def list_jobs(limit: int = Query(default=20, le=100)):
+    """List recent bulk scrape jobs."""
+    result = []
+    for job_id in list(jobs.keys())[-limit:]:
+        try:
+            job = jobs[job_id]
+            result.append({
+                "job_id": job_id,
+                "status": job["status"],
+                "created_at": job["created_at"],
+                "sites": job["input"]["sites"],
+                "progress": f"{job['progress']['completed']}/{job['input']['to_scrape']}",
+            })
+        except Exception:
+            pass
+    return {"jobs": sorted(result, key=lambda x: x["created_at"], reverse=True)}
+
+
+@app.function(min_containers=1)
 @modal.concurrent(max_inputs=100)
 @modal.asgi_app(requires_proxy_auth=True)
 def fastapi_app():
