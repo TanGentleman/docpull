@@ -3,113 +3,182 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Docpull - Add Site</title>
+  <title>Docpull</title>
   <style>
+    :root {
+      --bg-primary: #0d1117;
+      --bg-secondary: #161b22;
+      --bg-tertiary: #21262d;
+      --border: #30363d;
+      --text-primary: #c9d1d9;
+      --text-secondary: #8b949e;
+      --accent: #58a6ff;
+      --success: #238636;
+      --error: #f85149;
+      --radius: 8px;
+      --spacing: 16px;
+    }
+
     * { box-sizing: border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      max-width: 1200px;
+      max-width: 1000px;
       margin: 0 auto;
       padding: 20px;
-      background: #0d1117;
-      color: #c9d1d9;
+      background: var(--bg-primary);
+      color: var(--text-primary);
     }
-    h1 { color: #58a6ff; margin-bottom: 8px; }
-    .subtitle { color: #8b949e; margin-bottom: 24px; }
 
-    .step {
-      background: #161b22;
-      border: 1px solid #30363d;
-      border-radius: 8px;
-      padding: 20px;
-      margin-bottom: 16px;
-    }
-    .step-header {
+    /* Header */
+    header {
       display: flex;
+      justify-content: space-between;
       align-items: center;
-      gap: 12px;
-      margin-bottom: 16px;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
     }
-    .step-number {
-      background: #238636;
-      color: white;
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 600;
+    h1 { color: var(--accent); margin: 0; font-size: 24px; }
+    .site-count {
+      color: var(--text-secondary);
       font-size: 14px;
+      background: var(--bg-tertiary);
+      padding: 4px 12px;
+      border-radius: 12px;
     }
-    .step-title { font-size: 18px; font-weight: 600; }
 
-    label { display: block; margin-bottom: 6px; color: #8b949e; font-size: 14px; }
-    input[type="text"], textarea {
+    /* Cards */
+    .card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: var(--spacing);
+      overflow: hidden;
+    }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .card-header:hover { background: var(--bg-tertiary); }
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-title .icon { opacity: 0.7; }
+    .card-body { padding: 0 16px 16px; }
+    .card.collapsed .card-body { display: none; }
+    .collapse-icon {
+      transition: transform 0.2s;
+      color: var(--text-secondary);
+    }
+    .card.collapsed .collapse-icon { transform: rotate(-90deg); }
+
+    /* Site Grid */
+    .site-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 12px;
+    }
+    .site-card {
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-align: center;
+    }
+    .site-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+    .site-card.selected { border-color: var(--accent); background: rgba(88, 166, 255, 0.1); }
+    .site-card .name { font-weight: 500; margin-bottom: 4px; }
+    .site-card .meta { font-size: 12px; color: var(--text-secondary); }
+    .site-card.add-new {
+      border-style: dashed;
+      color: var(--text-secondary);
+    }
+    .site-card.add-new:hover { color: var(--accent); border-color: var(--accent); }
+
+    /* Form Elements */
+    label { display: block; margin-bottom: 6px; color: var(--text-secondary); font-size: 14px; }
+    input, textarea, select {
       width: 100%;
       padding: 10px 12px;
-      background: #0d1117;
-      border: 1px solid #30363d;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
       border-radius: 6px;
-      color: #c9d1d9;
+      color: var(--text-primary);
       font-size: 14px;
       font-family: inherit;
     }
-    input:focus, textarea:focus {
+    input:focus, textarea:focus, select:focus {
       outline: none;
-      border-color: #58a6ff;
+      border-color: var(--accent);
     }
     textarea {
       font-family: 'SF Mono', Consolas, monospace;
       font-size: 13px;
       resize: vertical;
     }
+    select { cursor: pointer; }
 
-    .row { display: flex; gap: 12px; align-items: flex-end; }
-    .row > * { flex: 1; }
-    .row > button { flex: none; }
+    .form-row {
+      display: flex;
+      gap: 12px;
+      align-items: flex-end;
+      margin-bottom: 12px;
+    }
+    .form-row > * { flex: 1; }
+    .form-row > button { flex: none; }
+    .form-group { margin-bottom: 12px; }
 
+    /* Buttons */
     button {
-      padding: 10px 20px;
+      padding: 10px 16px;
       border: none;
       border-radius: 6px;
       font-size: 14px;
       font-weight: 500;
       cursor: pointer;
-      transition: background 0.15s;
+      transition: all 0.15s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
     }
-    .btn-primary {
-      background: #238636;
-      color: white;
-    }
+    .btn-primary { background: var(--success); color: white; }
     .btn-primary:hover { background: #2ea043; }
-    .btn-primary:disabled {
-      background: #21262d;
-      color: #484f58;
-      cursor: not-allowed;
-    }
-    .btn-secondary {
-      background: #21262d;
-      color: #c9d1d9;
-      border: 1px solid #30363d;
-    }
-    .btn-secondary:hover { background: #30363d; }
+    .btn-primary:disabled { background: var(--bg-tertiary); color: #484f58; cursor: not-allowed; }
+    .btn-secondary { background: var(--bg-tertiary); color: var(--text-primary); }
+    .btn-secondary:hover { background: var(--border); }
+    .btn-ghost { background: transparent; color: var(--text-secondary); padding: 6px 10px; }
+    .btn-ghost:hover { color: var(--text-primary); background: var(--bg-tertiary); }
 
+    .btn-group { display: flex; gap: 8px; }
+
+    /* Output */
     .output {
-      background: #0d1117;
-      border: 1px solid #30363d;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
       border-radius: 6px;
       padding: 12px;
       font-family: 'SF Mono', Consolas, monospace;
       font-size: 12px;
       white-space: pre-wrap;
-      max-height: 400px;
+      max-height: 300px;
       overflow-y: auto;
       margin-top: 12px;
     }
-    .output.success { border-color: #238636; }
-    .output.error { border-color: #f85149; }
+    .output.success { border-color: var(--success); }
+    .output.error { border-color: var(--error); }
+    .hidden { display: none !important; }
 
+    /* Checkbox */
     .checkbox-row {
       display: flex;
       gap: 16px;
@@ -121,194 +190,371 @@
       gap: 6px;
       margin: 0;
       cursor: pointer;
-      color: #c9d1d9;
+      color: var(--text-primary);
     }
     input[type="checkbox"] {
       width: 16px;
       height: 16px;
-      accent-color: #238636;
+      accent-color: var(--success);
     }
 
+    /* Spinner */
     .spinner {
       display: inline-block;
       width: 14px;
       height: 14px;
-      border: 2px solid #30363d;
-      border-top-color: #58a6ff;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
-      margin-right: 8px;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    .hidden { display: none; }
+    /* Loading States */
+    .skeleton {
+      background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--border) 50%, var(--bg-tertiary) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+      border-radius: 6px;
+      height: 60px;
+    }
+    @keyframes shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
 
+    /* Empty State */
+    .empty-state {
+      text-align: center;
+      padding: 32px;
+      color: var(--text-secondary);
+    }
+    .empty-state p { margin: 8px 0; }
+
+    /* JSON Error */
     .json-error {
-      color: #f85149;
+      color: var(--error);
       font-size: 12px;
       margin-top: 4px;
     }
 
-    .config-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 6px;
-    }
-    .config-header label { margin: 0; }
-    .site-id-input {
+    /* Quick action buttons in a nice row */
+    .action-buttons {
       display: flex;
       gap: 8px;
-      align-items: center;
-    }
-    .site-id-input input {
-      width: 200px;
+      flex-wrap: wrap;
     }
   </style>
 </head>
 <body>
-  <h1>Docpull</h1>
-  <p class="subtitle">Add a new documentation site to scrape</p>
+  <header>
+    <h1>Docpull</h1>
+    <span class="site-count" id="siteCount">Loading...</span>
+  </header>
 
-  <!-- Step 1: Discover -->
-  <div class="step">
-    <div class="step-header">
-      <div class="step-number">1</div>
-      <div class="step-title">Discover Site</div>
+  <!-- Your Sites -->
+  <div class="card" id="sitesCard">
+    <div class="card-header" onclick="toggleCard('sitesCard')">
+      <span class="card-title"><span class="icon">&#9632;</span> Your Sites</span>
+      <span class="collapse-icon">&#9662;</span>
     </div>
-    <div class="row">
-      <div>
-        <label for="url">Documentation URL</label>
-        <input type="text" id="url" placeholder="https://docs.example.com/getting-started">
+    <div class="card-body">
+      <div id="siteGrid" class="site-grid">
+        <div class="skeleton"></div>
+        <div class="skeleton"></div>
+        <div class="skeleton"></div>
       </div>
-      <button class="btn-primary" id="discoverBtn" onclick="discover()">Discover</button>
     </div>
-    <div id="discoverOutput" class="output hidden"></div>
   </div>
 
-  <!-- Step 2: Edit Config -->
-  <div class="step">
-    <div class="step-header">
-      <div class="step-number">2</div>
-      <div class="step-title">Edit Configuration</div>
+  <!-- Quick Actions -->
+  <div class="card" id="actionsCard">
+    <div class="card-header" onclick="toggleCard('actionsCard')">
+      <span class="card-title"><span class="icon">&#9654;</span> Quick Actions</span>
+      <span class="collapse-icon">&#9662;</span>
     </div>
-    <div class="config-header">
-      <div class="site-id-input">
-        <label for="siteId">Site ID:</label>
-        <input type="text" id="siteId" placeholder="my-site">
+    <div class="card-body">
+      <div class="form-row">
+        <div style="flex: 1;">
+          <label for="selectedSite">Site</label>
+          <select id="selectedSite">
+            <option value="">Select a site...</option>
+          </select>
+        </div>
+        <div style="flex: 2;">
+          <label for="actionPath">Path (optional)</label>
+          <input type="text" id="actionPath" placeholder="/docs/guide">
+        </div>
       </div>
-      <button class="btn-secondary" onclick="formatJson()">Format JSON</button>
+      <div class="action-buttons">
+        <button class="btn-secondary" id="viewLinksBtn" onclick="viewLinks()">View Links</button>
+        <button class="btn-secondary" id="previewContentBtn" onclick="previewContent()">Preview Content</button>
+        <button class="btn-primary" id="exportSiteBtn" onclick="exportSite()">Export Site</button>
+      </div>
+      <div id="actionOutput" class="output hidden"></div>
     </div>
-    <textarea id="configEditor" rows="20" placeholder="Paste or edit JSON configuration here..."></textarea>
-    <div id="jsonError" class="json-error hidden"></div>
-    <div style="margin-top: 12px;">
-      <button class="btn-primary" id="saveConfigBtn" onclick="saveConfig()">Save to sites.json</button>
-    </div>
-    <div id="saveOutput" class="output hidden"></div>
   </div>
 
-  <!-- Step 3: Fetch Links -->
-  <div class="step">
-    <div class="step-header">
-      <div class="step-number">3</div>
-      <div class="step-title">Fetch Links</div>
+  <!-- Add New Site -->
+  <div class="card collapsed" id="addSiteCard">
+    <div class="card-header" onclick="toggleCard('addSiteCard')">
+      <span class="card-title"><span class="icon">+</span> Add New Site</span>
+      <span class="collapse-icon">&#9662;</span>
     </div>
-    <p style="color: #8b949e; margin-bottom: 12px;">
-      Wait a few seconds after saving for the Modal server to reload, then fetch links.
-    </p>
-    <div class="row">
-      <div>
-        <label for="linksSiteId">Site ID</label>
-        <input type="text" id="linksSiteId" placeholder="my-site">
+    <div class="card-body">
+      <div class="form-group">
+        <label for="discoverUrl">Documentation URL</label>
+        <div class="form-row" style="margin-bottom: 0;">
+          <input type="text" id="discoverUrl" placeholder="https://docs.example.com/getting-started">
+          <button class="btn-primary" id="discoverBtn" onclick="discover()">Discover</button>
+        </div>
       </div>
-      <button class="btn-primary" id="linksBtn" onclick="fetchLinks()">Fetch Links</button>
+      <div id="discoverOutput" class="output hidden"></div>
+
+      <div id="configSection" class="hidden" style="margin-top: 16px;">
+        <div class="form-row">
+          <div style="flex: none; width: 200px;">
+            <label for="siteId">Site ID</label>
+            <input type="text" id="siteId" placeholder="my-site">
+          </div>
+          <div style="flex: 1;">
+            <label>&nbsp;</label>
+            <button class="btn-ghost" onclick="formatJson()">Format JSON</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="configEditor">Configuration</label>
+          <textarea id="configEditor" rows="12" placeholder="Paste or edit JSON configuration..."></textarea>
+          <div id="jsonError" class="json-error hidden"></div>
+        </div>
+        <button class="btn-primary" id="saveConfigBtn" onclick="saveConfig()">Save Configuration</button>
+        <div id="saveOutput" class="output hidden"></div>
+      </div>
     </div>
-    <div class="checkbox-row">
-      <label><input type="checkbox" id="saveLinks" checked> Save to file (--save)</label>
-      <label><input type="checkbox" id="forceLinks"> Force refresh (--force)</label>
-    </div>
-    <div id="linksOutput" class="output hidden"></div>
   </div>
 
-  <!-- Step 4: Scrape Content -->
-  <div class="step">
-    <div class="step-header">
-      <div class="step-number">4</div>
-      <div class="step-title">Scrape Content</div>
+  <!-- Export -->
+  <div class="card" id="exportCard">
+    <div class="card-header" onclick="toggleCard('exportCard')">
+      <span class="card-title"><span class="icon">&#8595;</span> Export URLs</span>
+      <span class="collapse-icon">&#9662;</span>
     </div>
-    <p style="color: #8b949e; margin-bottom: 12px;">
-      Test content extraction on a specific page. If successful, this will set the testPath for the site.
-    </p>
-    <div class="row">
-      <div style="flex: 1;">
-        <label for="contentSiteId">Site ID</label>
-        <input type="text" id="contentSiteId" placeholder="my-site">
+    <div class="card-body">
+      <div class="form-row">
+        <div>
+          <label for="exportSiteSelect">Load cached URLs from</label>
+          <select id="exportSiteSelect">
+            <option value="">Select a site...</option>
+          </select>
+        </div>
+        <button class="btn-secondary" id="loadCacheBtn" onclick="loadCachedUrls()">Load URLs</button>
       </div>
-      <div style="flex: 2;">
-        <label for="contentPath">Path (from links above)</label>
-        <input type="text" id="contentPath" placeholder="/getting-started">
+      <div class="form-group">
+        <label for="exportUrls">URLs to export (one per line)</label>
+        <textarea id="exportUrls" rows="6" placeholder="https://docs.example.com/guide&#10;https://docs.example.com/api"></textarea>
       </div>
-      <button class="btn-primary" id="contentBtn" onclick="scrapeContent()">Scrape</button>
+      <div class="checkbox-row">
+        <label><input type="checkbox" id="exportScrape"> Scrape missing content (slower)</label>
+      </div>
+      <div style="margin-top: 12px;">
+        <button class="btn-primary" id="exportBtn" onclick="exportUrls()">Export as ZIP</button>
+      </div>
+      <div id="exportOutput" class="output hidden"></div>
     </div>
-    <div id="contentOutput" class="output hidden"></div>
-  </div>
-
-  <!-- Step 5: Export URLs -->
-  <div class="step">
-    <div class="step-header">
-      <div class="step-number">5</div>
-      <div class="step-title">Export URLs</div>
-    </div>
-    <p style="color: #8b949e; margin-bottom: 12px;">
-      Export a list of documentation URLs as a ZIP file. URLs are auto-resolved to configured sites.
-    </p>
-    <div>
-      <label for="exportUrls">URLs (one per line)</label>
-      <textarea id="exportUrls" rows="8" placeholder="https://docs.example.com/getting-started
-https://docs.example.com/api/overview
-https://docs.another.com/guide"></textarea>
-    </div>
-    <div class="checkbox-row">
-      <label><input type="checkbox" id="exportScrape"> Scrape missing content (slower)</label>
-    </div>
-    <div style="margin-top: 12px;">
-      <button class="btn-primary" id="exportBtn" onclick="exportUrls()">Export as ZIP</button>
-    </div>
-    <div id="exportOutput" class="output hidden"></div>
   </div>
 
   <script>
-    // Use relative URL for deployed Modal, absolute for local dev
+    // API URL - works for both local dev and deployed Modal
     const API = window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost'
       ? 'http://127.0.0.1:8080/api'
       : window.location.origin + '/api';
 
+    let sites = [];
+    let selectedSiteId = null;
+
+    // ===== Utility Functions =====
     function showOutput(el, text, success = true) {
       el.textContent = text;
       el.classList.remove('hidden', 'success', 'error');
       el.classList.add(success ? 'success' : 'error');
     }
 
+    function hideOutput(el) {
+      el.classList.add('hidden');
+    }
+
     function setLoading(btn, loading) {
       if (loading) {
         btn.disabled = true;
         btn.dataset.originalText = btn.textContent;
-        btn.innerHTML = '<span class="spinner"></span>Running...';
+        btn.innerHTML = '<span class="spinner"></span> Loading...';
       } else {
         btn.disabled = false;
         btn.textContent = btn.dataset.originalText;
       }
     }
 
+    function toggleCard(cardId) {
+      const card = document.getElementById(cardId);
+      card.classList.toggle('collapsed');
+      localStorage.setItem(`card_${cardId}`, card.classList.contains('collapsed') ? 'collapsed' : 'expanded');
+    }
+
+    function restoreCardStates() {
+      ['sitesCard', 'actionsCard', 'addSiteCard', 'exportCard'].forEach(id => {
+        const state = localStorage.getItem(`card_${id}`);
+        const card = document.getElementById(id);
+        if (state === 'collapsed') card.classList.add('collapsed');
+        else if (state === 'expanded') card.classList.remove('collapsed');
+      });
+    }
+
+    // ===== Site Loading =====
+    async function loadSites() {
+      const grid = document.getElementById('siteGrid');
+      const countEl = document.getElementById('siteCount');
+
+      try {
+        const res = await fetch(`${API}/sites`);
+        const data = await res.json();
+
+        // Handle different response formats
+        if (Array.isArray(data.sites)) {
+          sites = data.sites;
+        } else if (typeof data.sites === 'object') {
+          sites = Object.entries(data.sites).map(([id, config]) => ({ id, ...config }));
+        } else {
+          sites = [];
+        }
+
+        countEl.textContent = `${sites.length} site${sites.length !== 1 ? 's' : ''}`;
+
+        if (sites.length === 0) {
+          grid.innerHTML = `
+            <div class="site-card add-new" onclick="openAddSite()">
+              <div class="name">+ Add Site</div>
+              <div class="meta">Get started</div>
+            </div>
+          `;
+        } else {
+          grid.innerHTML = sites.map(s => `
+            <div class="site-card${selectedSiteId === s.id ? ' selected' : ''}" onclick="selectSite('${s.id}')">
+              <div class="name">${s.id}</div>
+              <div class="meta">${s.name || ''}</div>
+            </div>
+          `).join('') + `
+            <div class="site-card add-new" onclick="openAddSite()">
+              <div class="name">+</div>
+              <div class="meta">Add new</div>
+            </div>
+          `;
+        }
+
+        // Populate dropdowns
+        const options = '<option value="">Select a site...</option>' +
+          sites.map(s => `<option value="${s.id}">${s.id}</option>`).join('');
+        document.getElementById('selectedSite').innerHTML = options;
+        document.getElementById('exportSiteSelect').innerHTML = options;
+
+      } catch (err) {
+        countEl.textContent = 'Error';
+        grid.innerHTML = `<div class="empty-state"><p>Failed to load sites</p><p>${err.message}</p></div>`;
+      }
+    }
+
+    function selectSite(siteId) {
+      selectedSiteId = siteId;
+      document.getElementById('selectedSite').value = siteId;
+      document.getElementById('exportSiteSelect').value = siteId;
+
+      // Update visual selection
+      document.querySelectorAll('.site-card').forEach(card => {
+        card.classList.toggle('selected', card.querySelector('.name')?.textContent === siteId);
+      });
+    }
+
+    function openAddSite() {
+      const card = document.getElementById('addSiteCard');
+      card.classList.remove('collapsed');
+      document.getElementById('discoverUrl').focus();
+    }
+
+    // ===== Quick Actions =====
+    async function viewLinks() {
+      const siteId = document.getElementById('selectedSite').value;
+      if (!siteId) return alert('Please select a site');
+
+      const btn = document.getElementById('viewLinksBtn');
+      const output = document.getElementById('actionOutput');
+
+      setLoading(btn, true);
+      hideOutput(output);
+
+      try {
+        const res = await fetch(`${API}/links`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ site_id: siteId, save: false, force: false })
+        });
+        const data = await res.json();
+        showOutput(output, data.stdout || data.stderr || JSON.stringify(data, null, 2), data.success !== false);
+      } catch (err) {
+        showOutput(output, `Error: ${err.message}`, false);
+      }
+
+      setLoading(btn, false);
+    }
+
+    async function previewContent() {
+      const siteId = document.getElementById('selectedSite').value;
+      const path = document.getElementById('actionPath').value.trim();
+      if (!siteId) return alert('Please select a site');
+      if (!path) return alert('Please enter a path');
+
+      const btn = document.getElementById('previewContentBtn');
+      const output = document.getElementById('actionOutput');
+
+      setLoading(btn, true);
+      hideOutput(output);
+
+      try {
+        const res = await fetch(`${API}/content`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ site_id: siteId, path })
+        });
+        const data = await res.json();
+        showOutput(output, data.stdout || data.stderr || JSON.stringify(data, null, 2), data.success !== false);
+      } catch (err) {
+        showOutput(output, `Error: ${err.message}`, false);
+      }
+
+      setLoading(btn, false);
+    }
+
+    async function exportSite() {
+      const siteId = document.getElementById('selectedSite').value;
+      if (!siteId) return alert('Please select a site');
+
+      // Load cached URLs and export
+      document.getElementById('exportSiteSelect').value = siteId;
+      await loadCachedUrls();
+
+      // Trigger export
+      exportUrls();
+    }
+
+    // ===== Discover =====
     async function discover() {
-      const url = document.getElementById('url').value.trim();
+      const url = document.getElementById('discoverUrl').value.trim();
       if (!url) return alert('Please enter a URL');
 
       const btn = document.getElementById('discoverBtn');
       const output = document.getElementById('discoverOutput');
+      const configSection = document.getElementById('configSection');
 
       setLoading(btn, true);
-      output.classList.add('hidden');
+      hideOutput(output);
 
       try {
         const res = await fetch(`${API}/discover`, {
@@ -320,24 +566,22 @@ https://docs.another.com/guide"></textarea>
 
         showOutput(output, data.stdout || data.stderr, data.success);
 
-        // Try to extract suggested config from output
+        // Try to extract config
         const configMatch = data.stdout?.match(/SUGGESTED CONFIGURATION:[\s\S]*?\n"([^"]+)":\s*(\{[\s\S]*?\n\})\n/);
         if (configMatch) {
           const suggestedId = configMatch[1];
-          let configJson = configMatch[2];
-
-          // Clean up comments
-          configJson = configJson.replace(/\s*#[^\n]*/g, '');
+          let configJson = configMatch[2].replace(/\s*#[^\n]*/g, '');
 
           try {
             const config = JSON.parse(configJson);
             document.getElementById('siteId').value = suggestedId;
             document.getElementById('configEditor').value = JSON.stringify(config, null, 2);
-            document.getElementById('linksSiteId').value = suggestedId;
-            document.getElementById('contentSiteId').value = suggestedId;
+            configSection.classList.remove('hidden');
           } catch (e) {
-            // Couldn't parse, user can copy manually
+            configSection.classList.remove('hidden');
           }
+        } else {
+          configSection.classList.remove('hidden');
         }
       } catch (err) {
         showOutput(output, `Error: ${err.message}`, false);
@@ -349,10 +593,8 @@ https://docs.another.com/guide"></textarea>
     function formatJson() {
       const editor = document.getElementById('configEditor');
       const errorEl = document.getElementById('jsonError');
-
       try {
-        const parsed = JSON.parse(editor.value);
-        editor.value = JSON.stringify(parsed, null, 2);
+        editor.value = JSON.stringify(JSON.parse(editor.value), null, 2);
         errorEl.classList.add('hidden');
       } catch (e) {
         errorEl.textContent = `Invalid JSON: ${e.message}`;
@@ -381,7 +623,7 @@ https://docs.another.com/guide"></textarea>
       }
 
       setLoading(btn, true);
-      output.classList.add('hidden');
+      hideOutput(output);
 
       try {
         const res = await fetch(`${API}/add-site`, {
@@ -390,72 +632,46 @@ https://docs.another.com/guide"></textarea>
           body: JSON.stringify({ site_id: siteId, config })
         });
         const data = await res.json();
-        showOutput(output, data.message || JSON.stringify(data), data.success);
 
-        // Update the links and content site IDs
-        document.getElementById('linksSiteId').value = siteId;
-        document.getElementById('contentSiteId').value = siteId;
-      } catch (err) {
-        showOutput(output, `Error: ${err.message}`, false);
-      }
-
-      setLoading(btn, false);
-    }
-
-    async function fetchLinks() {
-      const siteId = document.getElementById('linksSiteId').value.trim();
-      if (!siteId) return alert('Please enter a site ID');
-
-      const save = document.getElementById('saveLinks').checked;
-      const force = document.getElementById('forceLinks').checked;
-      const btn = document.getElementById('linksBtn');
-      const output = document.getElementById('linksOutput');
-
-      setLoading(btn, true);
-      output.classList.add('hidden');
-
-      try {
-        const res = await fetch(`${API}/links`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ site_id: siteId, save, force })
-        });
-        const data = await res.json();
-        showOutput(output, data.stdout || data.stderr, data.success);
-      } catch (err) {
-        showOutput(output, `Error: ${err.message}`, false);
-      }
-
-      setLoading(btn, false);
-    }
-
-    async function scrapeContent() {
-      const siteId = document.getElementById('contentSiteId').value.trim();
-      const path = document.getElementById('contentPath').value.trim();
-      if (!siteId) return alert('Please enter a site ID');
-      if (!path) return alert('Please enter a path to scrape');
-
-      const btn = document.getElementById('contentBtn');
-      const output = document.getElementById('contentOutput');
-
-      setLoading(btn, true);
-      output.classList.add('hidden');
-
-      try {
-        const res = await fetch(`${API}/content`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ site_id: siteId, path })
-        });
-        const data = await res.json();
-
-        let outputText = data.stdout || data.stderr;
-        if (data.success && data.test_path_updated) {
-          outputText += `\n\n✓ Updated testPath to "${path}" in sites.json`;
+        if (res.ok && data.success !== false) {
+          showOutput(output, data.message || 'Site saved successfully!', true);
+          await loadSites();
+          selectSite(siteId);
+        } else {
+          showOutput(output, data.detail || data.message || 'Failed to save', false);
         }
-        showOutput(output, outputText, data.success);
       } catch (err) {
         showOutput(output, `Error: ${err.message}`, false);
+      }
+
+      setLoading(btn, false);
+    }
+
+    // ===== Export =====
+    async function loadCachedUrls() {
+      const siteId = document.getElementById('exportSiteSelect').value;
+      const btn = document.getElementById('loadCacheBtn');
+      const textarea = document.getElementById('exportUrls');
+
+      if (!siteId) {
+        textarea.value = '';
+        return;
+      }
+
+      setLoading(btn, true);
+
+      try {
+        const res = await fetch(`${API}/cache/keys?site_id=${siteId}`);
+        const data = await res.json();
+
+        if (data.keys && data.keys.length > 0) {
+          textarea.value = data.keys.map(k => k.url).join('\n');
+        } else {
+          textarea.value = '';
+          alert('No cached URLs found for this site');
+        }
+      } catch (err) {
+        alert(`Error loading cache: ${err.message}`);
       }
 
       setLoading(btn, false);
@@ -465,10 +681,7 @@ https://docs.another.com/guide"></textarea>
       const urlsText = document.getElementById('exportUrls').value.trim();
       if (!urlsText) return alert('Please enter URLs to export');
 
-      const urls = urlsText.split('\n')
-        .map(u => u.trim())
-        .filter(u => u && !u.startsWith('#'));
-
+      const urls = urlsText.split('\n').map(u => u.trim()).filter(u => u && !u.startsWith('#'));
       if (urls.length === 0) return alert('No valid URLs found');
 
       const scrape = document.getElementById('exportScrape').checked;
@@ -476,7 +689,7 @@ https://docs.another.com/guide"></textarea>
       const output = document.getElementById('exportOutput');
 
       setLoading(btn, true);
-      output.classList.add('hidden');
+      hideOutput(output);
 
       try {
         const res = await fetch(`${API}/export`, {
@@ -493,7 +706,6 @@ https://docs.another.com/guide"></textarea>
         }
 
         if (data.success && data.zip_base64) {
-          // Convert base64 to blob and trigger download
           const byteChars = atob(data.zip_base64);
           const byteArray = new Uint8Array(byteChars.length);
           for (let i = 0; i < byteChars.length; i++) {
@@ -510,13 +722,7 @@ https://docs.another.com/guide"></textarea>
           URL.revokeObjectURL(url);
 
           const stats = data.stats || {};
-          showOutput(output, `Downloaded ${data.filename} (${(data.size / 1024).toFixed(1)} KB)
-
-Stats:
-  Total URLs: ${stats.total}
-  OK: ${stats.ok} (cached: ${stats.cached}, scraped: ${stats.scraped})
-  Cache miss: ${stats.miss}
-  Errors: ${stats.error}`, true);
+          showOutput(output, `Downloaded ${data.filename} (${(data.size / 1024).toFixed(1)} KB)\n\nTotal: ${stats.total} | OK: ${stats.ok} | Cached: ${stats.cached} | Scraped: ${stats.scraped} | Miss: ${stats.miss} | Errors: ${stats.error}`, true);
         } else {
           showOutput(output, data.message || 'Export failed', false);
         }
@@ -527,14 +733,11 @@ Stats:
       setLoading(btn, false);
     }
 
-    // Validate JSON on input
+    // ===== JSON Validation =====
     document.getElementById('configEditor').addEventListener('input', () => {
       const errorEl = document.getElementById('jsonError');
       const text = document.getElementById('configEditor').value.trim();
-      if (!text) {
-        errorEl.classList.add('hidden');
-        return;
-      }
+      if (!text) { errorEl.classList.add('hidden'); return; }
       try {
         JSON.parse(text);
         errorEl.classList.add('hidden');
@@ -543,6 +746,10 @@ Stats:
         errorEl.classList.remove('hidden');
       }
     });
+
+    // ===== Init =====
+    restoreCardStates();
+    loadSites();
   </script>
 </body>
 </html>
