@@ -8,6 +8,10 @@ Modal-based documentation scraper. Fetches docs from various sites and saves loc
 # Install dependencies
 uv sync
 
+# Or (preferably in a virtual environment):
+pip install modal httpx
+```
+
 # Set up Modal credentials (create .env file)
 MODAL_KEY=wk-...
 MODAL_SECRET=ws-...
