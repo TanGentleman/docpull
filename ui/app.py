@@ -228,6 +228,47 @@ HTML_CONTENT = """
     }
     .job-stats { display: flex; gap: 16px; font-size: 14px; color: #8b949e; }
     .job-stats span { color: #c9d1d9; }
+
+    .loading-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+      color: #8b949e;
+    }
+    .loading-spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid #30363d;
+      border-top-color: #58a6ff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-bottom: 12px;
+    }
+    .loading-text {
+      font-size: 14px;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.6; }
+      50% { opacity: 1; }
+    }
+
+    .skeleton {
+      background: linear-gradient(90deg, #21262d 25%, #30363d 50%, #21262d 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+      border-radius: 6px;
+    }
+    @keyframes shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    .skeleton-item {
+      height: 52px;
+      margin-bottom: 12px;
+    }
   </style>
 </head>
 <body>
@@ -247,7 +288,12 @@ HTML_CONTENT = """
         <label style="margin: 0;">Configured Sites</label>
         <button class="btn-secondary" onclick="loadSites()">Refresh</button>
       </div>
-      <div id="siteList" class="site-list">Loading...</div>
+      <div id="siteList" class="site-list">
+        <div class="loading-container">
+          <div class="loading-spinner"></div>
+          <div class="loading-text">Loading sites...</div>
+        </div>
+      </div>
     </div>
 
     <div class="card">
@@ -345,12 +391,27 @@ HTML_CONTENT = """
       }
     }
 
+    function showSkeletonLoading(container, count = 3) {
+      container.innerHTML = Array(count).fill('<div class="skeleton skeleton-item"></div>').join('');
+    }
+
+    function showSpinnerLoading(container, message = 'Loading...') {
+      container.innerHTML = `
+        <div class="loading-container">
+          <div class="loading-spinner"></div>
+          <div class="loading-text">${message}</div>
+        </div>
+      `;
+    }
+
     async function loadSites() {
+      const list = document.getElementById('siteList');
+      showSpinnerLoading(list, 'Loading sites...');
+
       try {
         const res = await fetch(`${API}/sites`);
         const data = await res.json();
 
-        const list = document.getElementById('siteList');
         const select = document.getElementById('testSiteId');
 
         if (!data.sites || data.sites.length === 0) {
@@ -512,11 +573,13 @@ HTML_CONTENT = """
     }
 
     async function loadJobs() {
+      const list = document.getElementById('jobsList');
+      showSkeletonLoading(list, 3);
+
       try {
         const res = await fetch(`${API}/jobs`);
         const data = await res.json();
 
-        const list = document.getElementById('jobsList');
         if (!data.jobs || data.jobs.length === 0) {
           list.innerHTML = '<p style="color: #8b949e;">No recent jobs</p>';
           return;
