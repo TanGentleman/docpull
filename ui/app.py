@@ -6,6 +6,7 @@ Calls the scraper API via HTTP.
 """
 
 import os
+from pathlib import Path
 
 import modal
 from fastapi import FastAPI, HTTPException, Request
@@ -13,8 +14,10 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 # Lightweight image - just FastAPI + httpx
-image = modal.Image.debian_slim(python_version="3.11").pip_install(
-    "fastapi[standard]", "httpx"
+image = (
+    modal.Image.debian_slim(python_version="3.11")
+    .pip_install("fastapi[standard]", "httpx")
+    .add_local_file("ui/ui.html", "/root/ui.html")
 )
 
 app = modal.App("docpull", image=image)
@@ -41,6 +44,27 @@ class DiscoverRequest(BaseModel):
 
 class BulkRequest(BaseModel):
     urls: list[str]
+
+
+class ExportRequest(BaseModel):
+    urls: list[str]
+    cached_only: bool = True
+
+
+class AddSiteRequest(BaseModel):
+    site_id: str
+    config: dict
+
+
+class LinksRequest(BaseModel):
+    site_id: str
+    save: bool = False
+    force: bool = False
+
+
+class ContentRequest(BaseModel):
+    site_id: str
+    path: str
 
 
 # --- API Proxy Helpers ---
@@ -80,564 +104,13 @@ async def call_scraper_api(
 
 
 # --- UI HTML ---
-HTML_CONTENT = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Docpull</title>
-  <style>
-    * { box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      max-width: 900px;
-      margin: 0 auto;
-      padding: 20px;
-      background: #0d1117;
-      color: #c9d1d9;
-    }
-    h1 { color: #58a6ff; margin-bottom: 8px; }
-    h2 { color: #8b949e; font-size: 14px; font-weight: normal; margin-bottom: 24px; }
-
-    .tabs {
-      display: flex;
-      gap: 4px;
-      margin-bottom: 20px;
-      border-bottom: 1px solid #30363d;
-    }
-    .tab {
-      padding: 10px 16px;
-      background: transparent;
-      border: none;
-      color: #8b949e;
-      cursor: pointer;
-      border-bottom: 2px solid transparent;
-      margin-bottom: -1px;
-    }
-    .tab:hover { color: #c9d1d9; }
-    .tab.active {
-      color: #58a6ff;
-      border-bottom-color: #58a6ff;
-    }
-
-    .panel { display: none; }
-    .panel.active { display: block; }
-
-    .card {
-      background: #161b22;
-      border: 1px solid #30363d;
-      border-radius: 8px;
-      padding: 20px;
-      margin-bottom: 16px;
-    }
-
-    label { display: block; margin-bottom: 6px; color: #8b949e; font-size: 14px; }
-    input, textarea, select {
-      width: 100%;
-      padding: 10px 12px;
-      background: #0d1117;
-      border: 1px solid #30363d;
-      border-radius: 6px;
-      color: #c9d1d9;
-      font-size: 14px;
-    }
-    input:focus, textarea:focus, select:focus {
-      outline: none;
-      border-color: #58a6ff;
-    }
-    textarea {
-      font-family: 'SF Mono', Consolas, monospace;
-      font-size: 13px;
-      resize: vertical;
-    }
-
-    .row { display: flex; gap: 12px; align-items: flex-end; margin-bottom: 12px; }
-    .row > * { flex: 1; }
-    .row > button { flex: none; }
-
-    button {
-      padding: 10px 20px;
-      border: none;
-      border-radius: 6px;
-      font-size: 14px;
-      font-weight: 500;
-      cursor: pointer;
-    }
-    .btn-primary { background: #238636; color: white; }
-    .btn-primary:hover { background: #2ea043; }
-    .btn-primary:disabled { background: #21262d; color: #484f58; cursor: not-allowed; }
-    .btn-secondary { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; }
-    .btn-secondary:hover { background: #30363d; }
-
-    .output {
-      background: #0d1117;
-      border: 1px solid #30363d;
-      border-radius: 6px;
-      padding: 12px;
-      font-family: 'SF Mono', Consolas, monospace;
-      font-size: 12px;
-      white-space: pre-wrap;
-      max-height: 400px;
-      overflow-y: auto;
-      margin-top: 12px;
-    }
-    .output.success { border-color: #238636; }
-    .output.error { border-color: #f85149; }
-    .hidden { display: none; }
-
-    .spinner {
-      display: inline-block;
-      width: 14px;
-      height: 14px;
-      border: 2px solid #30363d;
-      border-top-color: #58a6ff;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-      margin-right: 8px;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    .site-list {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-      gap: 12px;
-    }
-    .site-item {
-      background: #0d1117;
-      border: 1px solid #30363d;
-      border-radius: 6px;
-      padding: 12px;
-      cursor: pointer;
-    }
-    .site-item:hover { border-color: #58a6ff; }
-    .site-item .name { font-weight: 500; color: #c9d1d9; }
-    .site-item .url { font-size: 12px; color: #8b949e; margin-top: 4px; word-break: break-all; }
-
-    .progress-bar {
-      height: 8px;
-      background: #21262d;
-      border-radius: 4px;
-      overflow: hidden;
-      margin: 12px 0;
-    }
-    .progress-fill {
-      height: 100%;
-      background: #238636;
-      transition: width 0.3s;
-    }
-    .job-stats { display: flex; gap: 16px; font-size: 14px; color: #8b949e; }
-    .job-stats span { color: #c9d1d9; }
-
-    .loading-container {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 40px 20px;
-      color: #8b949e;
-    }
-    .loading-spinner {
-      width: 32px;
-      height: 32px;
-      border: 3px solid #30363d;
-      border-top-color: #58a6ff;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-      margin-bottom: 12px;
-    }
-    .loading-text {
-      font-size: 14px;
-      animation: pulse 1.5s ease-in-out infinite;
-    }
-    @keyframes pulse {
-      0%, 100% { opacity: 0.6; }
-      50% { opacity: 1; }
-    }
-
-    .skeleton {
-      background: linear-gradient(90deg, #21262d 25%, #30363d 50%, #21262d 75%);
-      background-size: 200% 100%;
-      animation: shimmer 1.5s infinite;
-      border-radius: 6px;
-    }
-    @keyframes shimmer {
-      0% { background-position: 200% 0; }
-      100% { background-position: -200% 0; }
-    }
-    .skeleton-item {
-      height: 52px;
-      margin-bottom: 12px;
-    }
-  </style>
-</head>
-<body>
-  <h1>Docpull</h1>
-  <h2>Documentation Scraper</h2>
-
-  <div class="tabs">
-    <button class="tab active" onclick="showTab('sites')">Sites</button>
-    <button class="tab" onclick="showTab('discover')">Discover</button>
-    <button class="tab" onclick="showTab('bulk')">Bulk Jobs</button>
-  </div>
-
-  <!-- Sites Tab -->
-  <div id="sites-panel" class="panel active">
-    <div class="card">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-        <label style="margin: 0;">Configured Sites</label>
-        <button class="btn-secondary" onclick="loadSites()">Refresh</button>
-      </div>
-      <div id="siteList" class="site-list">
-        <div class="loading-container">
-          <div class="loading-spinner"></div>
-          <div class="loading-text">Loading sites...</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="card">
-      <label>Test Site</label>
-      <div class="row">
-        <select id="testSiteId"></select>
-        <input type="text" id="testPath" placeholder="/path/to/page" style="flex: 2;">
-        <button class="btn-primary" id="testLinksBtn" onclick="testLinks()">Links</button>
-        <button class="btn-primary" id="testContentBtn" onclick="testContent()">Content</button>
-      </div>
-      <div id="testOutput" class="output hidden"></div>
-    </div>
-  </div>
-
-  <!-- Discover Tab -->
-  <div id="discover-panel" class="panel">
-    <div class="card">
-      <label>Documentation URL</label>
-      <div class="row">
-        <input type="text" id="discoverUrl" placeholder="https://docs.example.com/getting-started">
-        <button class="btn-primary" id="discoverBtn" onclick="discover()">Discover</button>
-      </div>
-      <div id="discoverOutput" class="output hidden"></div>
-    </div>
-
-    <div class="card">
-      <label>Suggested Configuration</label>
-      <p style="color: #8b949e; font-size: 13px; margin-bottom: 12px;">
-        Copy this to <code>scraper/config/sites.json</code> and redeploy.
-      </p>
-      <textarea id="configOutput" rows="15" readonly placeholder="Run discover to generate config..."></textarea>
-    </div>
-  </div>
-
-  <!-- Bulk Jobs Tab -->
-  <div id="bulk-panel" class="panel">
-    <div class="card">
-      <label>Submit Bulk Job</label>
-      <textarea id="bulkUrls" rows="8" placeholder="Paste URLs (one per line)"></textarea>
-      <div style="margin-top: 12px;">
-        <button class="btn-primary" id="submitBulkBtn" onclick="submitBulk()">Submit Job</button>
-      </div>
-      <div id="bulkOutput" class="output hidden"></div>
-    </div>
-
-    <div class="card">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-        <label style="margin: 0;">Recent Jobs</label>
-        <button class="btn-secondary" onclick="loadJobs()">Refresh</button>
-      </div>
-      <div id="jobsList"></div>
-    </div>
-
-    <div class="card" id="jobDetail" style="display: none;">
-      <label>Job Progress</label>
-      <div class="progress-bar"><div class="progress-fill" id="jobProgress"></div></div>
-      <div class="job-stats">
-        <div>Completed: <span id="jobCompleted">0</span></div>
-        <div>Success: <span id="jobSuccess">0</span></div>
-        <div>Failed: <span id="jobFailed">0</span></div>
-        <div>Skipped: <span id="jobSkipped">0</span></div>
-      </div>
-      <div id="jobErrors" class="output hidden" style="margin-top: 12px;"></div>
-    </div>
-  </div>
-
-  <script>
-    const API = window.location.origin + '/api';
-    let pollInterval = null;
-
-    function showTab(name) {
-      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-      document.querySelector(`[onclick="showTab('${name}')"]`).classList.add('active');
-      document.getElementById(`${name}-panel`).classList.add('active');
-
-      if (name === 'sites') loadSites();
-      if (name === 'bulk') loadJobs();
-    }
-
-    function showOutput(el, text, success = true) {
-      el.textContent = text;
-      el.classList.remove('hidden', 'success', 'error');
-      el.classList.add(success ? 'success' : 'error');
-    }
-
-    function setLoading(btn, loading) {
-      if (loading) {
-        btn.disabled = true;
-        btn.dataset.original = btn.textContent;
-        btn.innerHTML = '<span class="spinner"></span>';
-      } else {
-        btn.disabled = false;
-        btn.textContent = btn.dataset.original;
-      }
-    }
-
-    function showSkeletonLoading(container, count = 3) {
-      container.innerHTML = Array(count).fill('<div class="skeleton skeleton-item"></div>').join('');
-    }
-
-    function showSpinnerLoading(container, message = 'Loading...') {
-      container.innerHTML = `
-        <div class="loading-container">
-          <div class="loading-spinner"></div>
-          <div class="loading-text">${message}</div>
-        </div>
-      `;
-    }
-
-    async function loadSites() {
-      const list = document.getElementById('siteList');
-      showSpinnerLoading(list, 'Loading sites...');
-
-      try {
-        const res = await fetch(`${API}/sites`);
-        const data = await res.json();
-
-        const select = document.getElementById('testSiteId');
-
-        if (!data.sites || data.sites.length === 0) {
-          list.innerHTML = '<p style="color: #8b949e;">No sites configured</p>';
-          return;
-        }
-
-        list.innerHTML = data.sites.map(s => `
-          <div class="site-item" onclick="selectSite('${s.id}')">
-            <div class="name">${s.id}</div>
-          </div>
-        `).join('');
-
-        select.innerHTML = data.sites.map(s =>
-          `<option value="${s.id}">${s.id}</option>`
-        ).join('');
-      } catch (err) {
-        document.getElementById('siteList').innerHTML = `<p style="color: #f85149;">Error: ${err.message}</p>`;
-      }
-    }
-
-    function selectSite(siteId) {
-      document.getElementById('testSiteId').value = siteId;
-    }
-
-    async function testLinks() {
-      const siteId = document.getElementById('testSiteId').value;
-      if (!siteId) return alert('Select a site');
-
-      const btn = document.getElementById('testLinksBtn');
-      const output = document.getElementById('testOutput');
-
-      setLoading(btn, true);
-      try {
-        const res = await fetch(`${API}/sites/${siteId}/links`);
-        const data = await res.json();
-        showOutput(output, JSON.stringify(data, null, 2), res.ok);
-      } catch (err) {
-        showOutput(output, err.message, false);
-      }
-      setLoading(btn, false);
-    }
-
-    async function testContent() {
-      const siteId = document.getElementById('testSiteId').value;
-      const path = document.getElementById('testPath').value.trim();
-      if (!siteId) return alert('Select a site');
-      if (!path) return alert('Enter a path');
-
-      const btn = document.getElementById('testContentBtn');
-      const output = document.getElementById('testOutput');
-
-      setLoading(btn, true);
-      try {
-        const res = await fetch(`${API}/sites/${siteId}/content?path=${encodeURIComponent(path)}`);
-        const data = await res.json();
-
-        if (data.content) {
-          const preview = data.content.substring(0, 2000);
-          showOutput(output, `${data.content_length} chars (${data.from_cache ? 'cached' : 'fresh'})\\n\\n${preview}${data.content.length > 2000 ? '\\n...' : ''}`, res.ok);
-        } else {
-          showOutput(output, JSON.stringify(data, null, 2), res.ok);
-        }
-      } catch (err) {
-        showOutput(output, err.message, false);
-      }
-      setLoading(btn, false);
-    }
-
-    async function discover() {
-      const url = document.getElementById('discoverUrl').value.trim();
-      if (!url) return alert('Enter a URL');
-
-      const btn = document.getElementById('discoverBtn');
-      const output = document.getElementById('discoverOutput');
-      const configOutput = document.getElementById('configOutput');
-
-      setLoading(btn, true);
-      output.classList.add('hidden');
-
-      try {
-        const res = await fetch(`${API}/discover?url=${encodeURIComponent(url)}`);
-        const data = await res.json();
-
-        if (data.success) {
-          showOutput(output, `Framework: ${data.framework}\\nBase URL: ${data.base_url_suggestion}\\nCopy buttons: ${data.copy_buttons?.length || 0}\\nContent selectors: ${data.content_selectors?.length || 0}\\nLinks found: ${data.link_analysis?.total_internal_links || 0}`, true);
-
-          // Generate suggested config
-          const config = generateConfig(data);
-          configOutput.value = JSON.stringify(config, null, 2);
-        } else {
-          showOutput(output, data.error || 'Discovery failed', false);
-        }
-      } catch (err) {
-        showOutput(output, err.message, false);
-      }
-      setLoading(btn, false);
-    }
-
-    function generateConfig(data) {
-      const siteId = new URL(data.url).hostname.replace(/\\./g, '-').replace(/^docs-|^www-/, '');
-
-      const config = {
-        [siteId]: {
-          name: siteId,
-          baseUrl: data.base_url_suggestion,
-          mode: "browser",
-          links: {
-            startUrls: [""],
-            pattern: new URL(data.base_url_suggestion).hostname
-          },
-          content: {
-            mode: "browser",
-            method: "inner_html"
-          }
-        }
-      };
-
-      // Add best content selector
-      if (data.content_selectors?.length > 0) {
-        config[siteId].content.selector = data.content_selectors[0].selector;
-      }
-
-      // Check for working copy button
-      const workingCopy = data.copy_buttons?.find(b => b.works);
-      if (workingCopy) {
-        config[siteId].content.method = "click_copy";
-        config[siteId].content.selector = workingCopy.selector;
-      }
-
-      return config;
-    }
-
-    async function submitBulk() {
-      const urls = document.getElementById('bulkUrls').value.trim().split('\\n').filter(u => u.trim());
-      if (urls.length === 0) return alert('Enter at least one URL');
-
-      const btn = document.getElementById('submitBulkBtn');
-      const output = document.getElementById('bulkOutput');
-
-      setLoading(btn, true);
-      try {
-        const res = await fetch(`${API}/jobs/bulk`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ urls })
-        });
-        const data = await res.json();
-        showOutput(output, `Job ID: ${data.job_id}\\nStatus: ${data.status}\\nBatches: ${data.batches}`, res.ok);
-
-        if (data.job_id) {
-          watchJob(data.job_id);
-        }
-        loadJobs();
-      } catch (err) {
-        showOutput(output, err.message, false);
-      }
-      setLoading(btn, false);
-    }
-
-    async function loadJobs() {
-      const list = document.getElementById('jobsList');
-      showSkeletonLoading(list, 3);
-
-      try {
-        const res = await fetch(`${API}/jobs`);
-        const data = await res.json();
-
-        if (!data.jobs || data.jobs.length === 0) {
-          list.innerHTML = '<p style="color: #8b949e;">No recent jobs</p>';
-          return;
-        }
-
-        list.innerHTML = data.jobs.slice(0, 10).map(j => `
-          <div class="site-item" onclick="watchJob('${j.job_id}')" style="margin-bottom: 8px;">
-            <div class="name">${j.job_id.substring(0, 8)}...</div>
-            <div class="url">${j.status} - ${j.progress} - ${j.sites?.join(', ') || ''}</div>
-          </div>
-        `).join('');
-      } catch (err) {
-        document.getElementById('jobsList').innerHTML = `<p style="color: #f85149;">Error: ${err.message}</p>`;
-      }
-    }
-
-    async function watchJob(jobId) {
-      if (pollInterval) clearInterval(pollInterval);
-
-      document.getElementById('jobDetail').style.display = 'block';
-
-      const updateJob = async () => {
-        try {
-          const res = await fetch(`${API}/jobs/${jobId}`);
-          const data = await res.json();
-
-          const pct = data.progress_pct || 0;
-          document.getElementById('jobProgress').style.width = `${pct}%`;
-          document.getElementById('jobCompleted').textContent = data.progress?.completed || 0;
-          document.getElementById('jobSuccess').textContent = data.progress?.success || 0;
-          document.getElementById('jobFailed').textContent = data.progress?.failed || 0;
-          document.getElementById('jobSkipped').textContent = data.progress?.skipped || 0;
-
-          if (data.errors?.length > 0) {
-            const errEl = document.getElementById('jobErrors');
-            errEl.classList.remove('hidden');
-            showOutput(errEl, data.errors.map(e => `${e.path}: ${e.error}`).join('\\n'), false);
-          }
-
-          if (data.status === 'completed') {
-            clearInterval(pollInterval);
-            pollInterval = null;
-          }
-        } catch (err) {
-          console.error(err);
-        }
-      };
-
-      updateJob();
-      pollInterval = setInterval(updateJob, 2000);
-    }
-
-    // Initial load
-    loadSites();
-  </script>
-</body>
-</html>
-"""
+# Read HTML from file (copied into image at build time)
+_HTML_FILE = Path("/root/ui.html")
+if _HTML_FILE.exists():
+    HTML_CONTENT = _HTML_FILE.read_text()
+else:
+    # Fallback for local development
+    HTML_CONTENT = (Path(__file__).parent / "ui.html").read_text()
 
 
 # --- Routes ---
@@ -666,9 +139,139 @@ async def get_content(site_id: str, path: str, request: Request):
 
 
 @web_app.get("/api/discover")
-async def discover(url: str, request: Request):
-    """Discover selectors for a URL."""
+async def discover_get(url: str, request: Request):
+    """Discover selectors for a URL (GET method)."""
     return await call_scraper_api("GET", "/discover", request, params={"url": url})
+
+
+@web_app.post("/api/discover")
+async def discover_post(req: DiscoverRequest, request: Request):
+    """Discover selectors for a URL (POST method for ui.html compatibility).
+
+    Returns CLI-style output format for compatibility with ui.html.
+    """
+    try:
+        data = await call_scraper_api("GET", "/discover", request, params={"url": req.url})
+    except HTTPException as e:
+        return {"success": False, "stdout": "", "stderr": str(e.detail)}
+
+    # Format as CLI-style output that ui.html expects
+    framework = data.get("framework", "unknown")
+    base_url = data.get("base_url_suggestion", req.url)
+    copy_buttons = data.get("copy_buttons", [])
+    content_selectors = data.get("content_selectors", [])
+    link_analysis = data.get("link_analysis", {})
+
+    output_lines = [
+        "=" * 70,
+        f"DISCOVERY RESULTS FOR: {req.url}",
+        "=" * 70,
+        f"\nFramework Detected: {framework.upper()}",
+        f"Suggested Base URL: {base_url}",
+    ]
+
+    # Copy buttons
+    output_lines.append("\n" + "-" * 70)
+    output_lines.append("COPY BUTTONS:")
+    working = [b for b in copy_buttons if b.get("works")]
+    if working:
+        for btn in working:
+            output_lines.append(f"  {btn['selector']} - {btn.get('chars', 0)} chars")
+    else:
+        output_lines.append("  No working copy buttons found")
+
+    # Content selectors
+    output_lines.append("\n" + "-" * 70)
+    output_lines.append("CONTENT SELECTORS:")
+    for sel in content_selectors[:5]:
+        marker = "[RECOMMENDED]" if sel.get("recommended") else ""
+        output_lines.append(f"  {sel['selector']} {marker}")
+        output_lines.append(f"     {sel.get('text_chars', 0)} text chars")
+
+    # Links
+    output_lines.append("\n" + "-" * 70)
+    output_lines.append("LINK ANALYSIS:")
+    output_lines.append(f"  Total internal links: {link_analysis.get('total_internal_links', 0)}")
+
+    # Generate suggested config
+    output_lines.append("\n" + "=" * 70)
+    output_lines.append("SUGGESTED CONFIGURATION:")
+    output_lines.append("=" * 70)
+
+    # Determine site_id from URL
+    from urllib.parse import urlparse
+    parsed = urlparse(req.url)
+    site_id = parsed.hostname.replace(".", "-").replace("docs-", "").replace("www-", "")
+
+    # Build config
+    content_method = "inner_html"
+    content_selector = "main"
+    if working:
+        content_method = "click_copy"
+        content_selector = working[0]["selector"]
+    elif content_selectors:
+        content_selector = content_selectors[0]["selector"]
+
+    config = {
+        "name": site_id,
+        "baseUrl": base_url,
+        "mode": "browser",
+        "links": {"startUrls": [""], "pattern": ""},
+        "content": {
+            "mode": "browser",
+            "selector": content_selector,
+            "method": content_method
+        }
+    }
+
+    import json
+    output_lines.append(f'\n"{site_id}": {json.dumps(config, indent=2)}')
+    output_lines.append("\n" + "=" * 70)
+
+    return {
+        "success": True,
+        "stdout": "\n".join(output_lines),
+        "stderr": ""
+    }
+
+
+@web_app.post("/api/add-site")
+async def add_site(req: AddSiteRequest):
+    """Add site to config - not supported in deployed Modal UI."""
+    raise HTTPException(
+        status_code=501,
+        detail="Adding sites is not supported in deployed UI. Use local ui-server.py instead."
+    )
+
+
+@web_app.post("/api/links")
+async def get_links_post(req: LinksRequest, request: Request):
+    """Get links for a site (POST method for ui.html compatibility)."""
+    params = {}
+    if req.force:
+        params["max_age"] = 0
+    result = await call_scraper_api("GET", f"/sites/{req.site_id}/links", request, params=params)
+    # Wrap in format expected by ui.html
+    return {
+        "success": True,
+        "stdout": "\n".join(result.get("links", [])) + f"\n\nTotal: {result.get('count', 0)} links",
+        "stderr": ""
+    }
+
+
+@web_app.post("/api/content")
+async def get_content_post(req: ContentRequest, request: Request):
+    """Get content for a page (POST method for ui.html compatibility)."""
+    result = await call_scraper_api(
+        "GET", f"/sites/{req.site_id}/content", request, params={"path": req.path}
+    )
+    # Wrap in format expected by ui.html
+    content = result.get("content", "")
+    return {
+        "success": True,
+        "stdout": f"Content ({len(content)} chars):\n\n{content[:2000]}{'...' if len(content) > 2000 else ''}",
+        "stderr": ""
+    }
 
 
 @web_app.post("/api/jobs/bulk")
@@ -687,6 +290,75 @@ async def get_job(job_id: str, request: Request):
 async def list_jobs(request: Request):
     """List recent jobs."""
     return await call_scraper_api("GET", "/jobs", request)
+
+
+@web_app.get("/api/cache/keys")
+async def cache_keys(request: Request, site_id: str | None = None):
+    """Get cached URLs."""
+    params = {"content_only": "true"}
+    if site_id:
+        params["site_id"] = site_id
+    return await call_scraper_api("GET", "/cache/keys", request, params=params)
+
+
+@web_app.post("/api/export")
+async def export_urls(req: ExportRequest, request: Request):
+    """Export URLs as ZIP file."""
+    import base64
+    import httpx
+
+    # Forward Modal auth headers from the incoming request
+    headers = {}
+    if "modal-key" in request.headers:
+        headers["Modal-Key"] = request.headers["modal-key"]
+    if "modal-secret" in request.headers:
+        headers["Modal-Secret"] = request.headers["modal-secret"]
+
+    try:
+        async with httpx.AsyncClient(timeout=600.0) as client:
+            resp = await client.post(
+                f"{get_scraper_api_url()}/export/zip",
+                json={
+                    "urls": req.urls,
+                    "cached_only": req.cached_only,
+                    "include_manifest": True,
+                },
+                headers=headers,
+            )
+            resp.raise_for_status()
+
+            # Extract stats from headers
+            stats = {
+                "total": resp.headers.get("X-Export-Total", "?"),
+                "ok": resp.headers.get("X-Export-Ok", "?"),
+                "cached": resp.headers.get("X-Export-Cached", "?"),
+                "scraped": resp.headers.get("X-Export-Scraped", "?"),
+                "miss": resp.headers.get("X-Export-Miss", "?"),
+                "error": resp.headers.get("X-Export-Error", "?"),
+            }
+
+            # Return ZIP as base64 for frontend download
+            zip_b64 = base64.b64encode(resp.content).decode("utf-8")
+
+            return {
+                "success": True,
+                "zip_base64": zip_b64,
+                "filename": "docs_export.zip",
+                "size": len(resp.content),
+                "stats": stats,
+            }
+
+    except httpx.HTTPStatusError as e:
+        error_detail = str(e)
+        try:
+            error_detail = e.response.json().get("detail", str(e))
+        except Exception:
+            pass
+        raise HTTPException(status_code=e.response.status_code, detail=f"API error: {error_detail}")
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Export timed out")
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"Failed to connect to API: {e}")
 
 
 # --- Modal Entrypoint ---

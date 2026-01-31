@@ -253,8 +253,35 @@
     <div id="contentOutput" class="output hidden"></div>
   </div>
 
+  <!-- Step 5: Export URLs -->
+  <div class="step">
+    <div class="step-header">
+      <div class="step-number">5</div>
+      <div class="step-title">Export URLs</div>
+    </div>
+    <p style="color: #8b949e; margin-bottom: 12px;">
+      Export a list of documentation URLs as a ZIP file. URLs are auto-resolved to configured sites.
+    </p>
+    <div>
+      <label for="exportUrls">URLs (one per line)</label>
+      <textarea id="exportUrls" rows="8" placeholder="https://docs.example.com/getting-started
+https://docs.example.com/api/overview
+https://docs.another.com/guide"></textarea>
+    </div>
+    <div class="checkbox-row">
+      <label><input type="checkbox" id="exportScrape"> Scrape missing content (slower)</label>
+    </div>
+    <div style="margin-top: 12px;">
+      <button class="btn-primary" id="exportBtn" onclick="exportUrls()">Export as ZIP</button>
+    </div>
+    <div id="exportOutput" class="output hidden"></div>
+  </div>
+
   <script>
-    const API = 'http://127.0.0.1:8080/api';
+    // Use relative URL for deployed Modal, absolute for local dev
+    const API = window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost'
+      ? 'http://127.0.0.1:8080/api'
+      : window.location.origin + '/api';
 
     function showOutput(el, text, success = true) {
       el.textContent = text;
@@ -427,6 +454,72 @@
           outputText += `\n\n✓ Updated testPath to "${path}" in sites.json`;
         }
         showOutput(output, outputText, data.success);
+      } catch (err) {
+        showOutput(output, `Error: ${err.message}`, false);
+      }
+
+      setLoading(btn, false);
+    }
+
+    async function exportUrls() {
+      const urlsText = document.getElementById('exportUrls').value.trim();
+      if (!urlsText) return alert('Please enter URLs to export');
+
+      const urls = urlsText.split('\n')
+        .map(u => u.trim())
+        .filter(u => u && !u.startsWith('#'));
+
+      if (urls.length === 0) return alert('No valid URLs found');
+
+      const scrape = document.getElementById('exportScrape').checked;
+      const btn = document.getElementById('exportBtn');
+      const output = document.getElementById('exportOutput');
+
+      setLoading(btn, true);
+      output.classList.add('hidden');
+
+      try {
+        const res = await fetch(`${API}/export`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ urls, cached_only: !scrape })
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          showOutput(output, `Error: ${data.detail || 'Export failed'}`, false);
+          setLoading(btn, false);
+          return;
+        }
+
+        if (data.success && data.zip_base64) {
+          // Convert base64 to blob and trigger download
+          const byteChars = atob(data.zip_base64);
+          const byteArray = new Uint8Array(byteChars.length);
+          for (let i = 0; i < byteChars.length; i++) {
+            byteArray[i] = byteChars.charCodeAt(i);
+          }
+          const blob = new Blob([byteArray], { type: 'application/zip' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = data.filename || 'docs_export.zip';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+
+          const stats = data.stats || {};
+          showOutput(output, `Downloaded ${data.filename} (${(data.size / 1024).toFixed(1)} KB)
+
+Stats:
+  Total URLs: ${stats.total}
+  OK: ${stats.ok} (cached: ${stats.cached}, scraped: ${stats.scraped})
+  Cache miss: ${stats.miss}
+  Errors: ${stats.error}`, true);
+        } else {
+          showOutput(output, data.message || 'Export failed', false);
+        }
       } catch (err) {
         showOutput(output, `Error: ${err.message}`, false);
       }

@@ -2,11 +2,13 @@
 
 import ipaddress
 import json
+import os
 import socket
 import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
 
+import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
@@ -62,7 +64,23 @@ def validate_url(url: str) -> str | None:
 
     return None
 
-SITES_JSON = Path(__file__).parent / "scraper" / "config" / "sites.json"
+PROJECT_ROOT = Path(__file__).parent.parent
+SITES_JSON = PROJECT_ROOT / "scraper" / "config" / "sites.json"
+
+# Modal API configuration
+_ENV = os.environ.get("ENVIRONMENT", "dev")
+_USERNAME = os.environ.get("MODAL_USERNAME", "tangentleman")
+_SUFFIX = "-dev" if _ENV == "dev" else ""
+API_BASE = f"https://{_USERNAME}--content-scraper-api-fastapi-app{_SUFFIX}.modal.run"
+
+
+def get_auth_headers() -> dict:
+    """Get Modal authentication headers if configured."""
+    key = os.environ.get("MODAL_KEY")
+    secret = os.environ.get("MODAL_SECRET")
+    if key and secret:
+        return {"Modal-Key": key, "Modal-Secret": secret}
+    return {}
 
 
 class DiscoverRequest(BaseModel):
@@ -85,6 +103,11 @@ class ContentRequest(BaseModel):
     path: str
 
 
+class ExportRequest(BaseModel):
+    urls: list[str]
+    cached_only: bool = True
+
+
 def run_command(cmd: list[str], timeout: int = 120) -> dict:
     """Run a CLI command and return stdout/stderr."""
     try:
@@ -93,7 +116,7 @@ def run_command(cmd: list[str], timeout: int = 120) -> dict:
             capture_output=True,
             text=True,
             timeout=timeout,
-            cwd=Path(__file__).parent,
+            cwd=PROJECT_ROOT,
         )
         return {
             "success": result.returncode == 0,
@@ -209,6 +232,65 @@ async def delete_site(site_id: str):
     SITES_JSON.write_text(json.dumps(data, indent=2))
 
     return {"success": True, "message": f"Site '{site_id}' deleted"}
+
+
+@app.post("/api/export")
+async def export_urls(req: ExportRequest):
+    """Export URLs as a ZIP file via Modal API."""
+    if not req.urls:
+        raise HTTPException(400, "No URLs provided")
+
+    # Validate all URLs
+    for url in req.urls:
+        if error := validate_url(url):
+            raise HTTPException(400, f"Invalid URL '{url}': {error}")
+
+    try:
+        async with httpx.AsyncClient(timeout=600.0) as client:
+            resp = await client.post(
+                f"{API_BASE}/export/zip",
+                json={
+                    "urls": req.urls,
+                    "cached_only": req.cached_only,
+                    "include_manifest": True,
+                },
+                headers=get_auth_headers(),
+            )
+            resp.raise_for_status()
+
+            # Extract stats from headers
+            stats = {
+                "total": resp.headers.get("X-Export-Total", "?"),
+                "ok": resp.headers.get("X-Export-Ok", "?"),
+                "cached": resp.headers.get("X-Export-Cached", "?"),
+                "scraped": resp.headers.get("X-Export-Scraped", "?"),
+                "miss": resp.headers.get("X-Export-Miss", "?"),
+                "error": resp.headers.get("X-Export-Error", "?"),
+            }
+
+            # Return ZIP file as base64 for frontend download
+            import base64
+            zip_b64 = base64.b64encode(resp.content).decode("utf-8")
+
+            return {
+                "success": True,
+                "zip_base64": zip_b64,
+                "filename": "docs_export.zip",
+                "size": len(resp.content),
+                "stats": stats,
+            }
+
+    except httpx.HTTPStatusError as e:
+        error_detail = str(e)
+        try:
+            error_detail = e.response.json().get("detail", str(e))
+        except Exception:
+            pass
+        raise HTTPException(e.response.status_code, f"API error: {error_detail}")
+    except httpx.TimeoutException:
+        raise HTTPException(504, "Export timed out")
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"Failed to connect to API: {e}")
 
 
 if __name__ == "__main__":
