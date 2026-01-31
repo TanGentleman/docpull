@@ -2,24 +2,26 @@
 
 Modal-based documentation scraper. Fetches docs from various sites and saves locally as markdown.
 
-## Setup
+## Quick Start
 
 ```bash
+# Install dependencies
 uv sync
-```
 
-Create `.env` with Modal credentials:
-```
+# Set up Modal credentials (create .env file)
 MODAL_KEY=wk-...
 MODAL_SECRET=ws-...
-```
 
-Deploy:
-```bash
-modal deploy content-scraper-api.py
+# Deploy and serve the API
+modal serve content-scraper-api.py
+
+# Deploy and serve the UI (in another terminal)
+modal serve ui/app.py
 ```
 
 ## Usage
+
+### CLI
 
 ```bash
 python docpull.py sites                     # List available sites
@@ -35,30 +37,11 @@ python docpull.py job <job_id> --watch      # Watch live progress
 python docpull.py jobs                      # List recent jobs
 ```
 
+### Web UI
+
+After running `modal serve ui/app.py`, open the URL shown in the terminal to access the web interface.
+
 Output: `./docs/<site>/<path>.md`
-
-## Architecture
-
-```
-docpull.py (CLI) ──▶ content-scraper-api.py (Modal)
-                           │
-              ┌────────────┼────────────┐
-              ▼            ▼            ▼
-       modal.Dict    modal.Dict    modal.Dict
-        (cache)       (errors)       (jobs)
-```
-
-**Scraping modes:**
-- `index` - Sequential scraping, one container
-- `bulk` - Parallel scraping, up to 100 containers via `.spawn()`
-
-**Link discovery:**
-- `mode: "fetch"` - HTTP crawl from `startUrls`, follows links to `maxDepth`
-- `mode: "browser"` - Playwright extracts links from `startUrls` (no recursion)
-
-**Content scraping:** Playwright loads page, extracts via CSS selector or copy button click.
-
-**Error handling:** Links failing 3+ times are skipped. Use `--force` to retry.
 
 ## Configuration
 
