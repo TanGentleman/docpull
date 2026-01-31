@@ -18,7 +18,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from scraper.bulk import (
+from api.bulk import (
     DEFAULT_DELAY_MS,
     USER_AGENT,
     JobStatus,
@@ -27,7 +27,7 @@ from scraper.bulk import (
     jobs,
     update_job_progress,
 )
-from scraper.urls import clean_url, is_asset_url, normalize_page_path, normalize_path, normalize_url
+from api.urls import clean_url, is_asset_url, normalize_page_path, normalize_path, normalize_url
 
 # Modal image with Playwright
 playwright_image = (
@@ -42,7 +42,8 @@ playwright_image = (
         "playwright install chromium",
     )
     .pip_install("fastapi[standard]", "pydantic", "httpx", "markdownify")
-    .add_local_dir("scraper", "/root/scraper")
+    .add_local_dir("api", "/root/api")
+    .add_local_file("config/sites.json", "/root/config/sites.json")
 )
 
 app = modal.App("content-scraper-api", image=playwright_image)
@@ -126,10 +127,10 @@ def load_sites_config() -> dict[str, SiteConfig]:
     Returns dict mapping site_id to validated SiteConfig.
     Raises ValidationError if config is invalid.
     """
-    config_path = Path("/root/scraper/config/sites.json")
+    config_path = Path("/root/config/sites.json")
     if not config_path.exists():
         # Fallback to local path during development
-        config_path = Path(__file__).parent / "scraper" / "config" / "sites.json"
+        config_path = Path(__file__).parent.parent / "config" / "sites.json"
     with open(config_path) as f:
         raw = json.load(f)["sites"]
     return {site_id: SiteConfig(**cfg) for site_id, cfg in raw.items()}

@@ -2,7 +2,7 @@
 
 import pytest
 
-from scraper.bulk import (
+from api.bulk import (
     MAX_CONTAINERS,
     JobStatus,
     calculate_batches,

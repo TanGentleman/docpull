@@ -2,7 +2,7 @@
 
 import pytest
 
-from scraper.urls import (
+from api.urls import (
     ASSET_EXTENSIONS,
     clean_url,
     is_asset_url,

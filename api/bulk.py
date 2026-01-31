@@ -7,7 +7,7 @@ from enum import Enum
 
 import modal
 
-from scraper.urls import is_asset_url  # noqa: F401 - re-exported for backwards compat
+from api.urls import is_asset_url  # noqa: F401 - re-exported for backwards compat
 
 # Shared Modal Dicts (same names as main API for interop)
 jobs = modal.Dict.from_name("scrape-jobs", create_if_missing=True)

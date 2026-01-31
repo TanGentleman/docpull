@@ -12,3 +12,6 @@ dependencies = [
     "typer>=0.15.0",
     "uvicorn>=0.40.0",
 ]
+
+[project.scripts]
+docpull = "cli.main:app"
