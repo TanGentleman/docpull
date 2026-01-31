@@ -27,7 +27,7 @@ from scraper.bulk import (
     jobs,
     update_job_progress,
 )
-from scraper.urls import clean_url, is_asset_url, normalize_path, normalize_url
+from scraper.urls import clean_url, is_asset_url, normalize_page_path, normalize_path, normalize_url
 
 # Modal image with Playwright
 playwright_image = (
@@ -1067,7 +1067,7 @@ async def get_site_links(
 @web_app.get("/sites/{site_id}/content")
 async def get_site_content(
     site_id: str,
-    path: str = Query(default="", description="Page path relative to baseUrl"),
+    path: str = Query(default="", description="Page path relative to baseUrl (also accepts full URL)"),
     max_age: int = Query(
         default=DEFAULT_MAX_AGE, description="Max cache age in seconds"
     ),
@@ -1075,14 +1075,15 @@ async def get_site_content(
     """Get content from a specific page.
 
     Returns cached version if fresh, otherwise scrapes fresh content.
+    Accepts flexible path formats: full URL, path with/without leading slash.
     """
     sites_config = load_sites_config()
     config = sites_config.get(site_id)
     if not config:
         raise HTTPException(status_code=404, detail=f"Unknown site: {site_id}")
 
-    if not path:
-        path = config.defaultPath
+    # Normalize path: handles full URLs, missing leading slash, etc.
+    path = normalize_page_path(path, config.baseUrl) if path else config.defaultPath
     cache_key = f"{site_id}:{path}"
     url = config.baseUrl + path
 

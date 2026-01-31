@@ -70,3 +70,34 @@ def normalize_path(path: str) -> str:
     if path != "/" and path.endswith("/"):
         path = path[:-1]
     return "" if path == "/" else path
+
+
+def normalize_page_path(path: str, base_url: str) -> str:
+    """Normalize a page path relative to a base URL.
+
+    Handles various input formats:
+    - Full URL starting with base_url: extracts path portion
+    - Path without leading slash: adds leading slash
+    - Already normalized path: returns as-is
+
+    Examples with base_url="https://docs.modal.com":
+    - "https://docs.modal.com/guide/hello" -> "/guide/hello"
+    - "guide/hello" -> "/guide/hello"
+    - "/guide/hello" -> "/guide/hello"
+    """
+    if not path:
+        return ""
+
+    path = path.strip()
+
+    # Check if it's a full URL that starts with the base URL
+    if path.startswith(("http://", "https://")):
+        norm_base = normalize_url(base_url)
+        norm_full = normalize_url(path)
+        if norm_full == norm_base:
+            return ""
+        if norm_full.startswith(norm_base + "/"):
+            return norm_full[len(norm_base):]
+
+    # Otherwise, just normalize the path
+    return normalize_path(path)
