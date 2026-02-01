@@ -618,6 +618,55 @@
       outline: 2px solid var(--accent);
       outline-offset: 2px;
     }
+
+    /* Access Key Input */
+    .access-key-container {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .access-key-input {
+      width: 140px;
+      padding: 8px 12px;
+      font-size: 13px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text-primary);
+      transition: all 0.2s ease;
+    }
+
+    .access-key-input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+
+    .access-key-input::placeholder {
+      color: var(--text-secondary);
+      opacity: 0.6;
+    }
+
+    .access-key-label {
+      font-size: 12px;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .access-key-status {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--border);
+      transition: background 0.2s ease;
+    }
+
+    .access-key-status.active {
+      background: var(--success);
+    }
   </style>
 </head>
 <body>
@@ -625,6 +674,13 @@
     <div class="logo">
       <div class="logo-icon">&#8615;</div>
       <h1>Docpull</h1>
+    </div>
+    <div class="access-key-container">
+      <label class="access-key-label">
+        <span class="access-key-status" id="accessKeyStatus"></span>
+        Access Key
+      </label>
+      <input type="password" class="access-key-input" id="accessKey" placeholder="Enter key..." autocomplete="off">
     </div>
     <span class="site-count" id="siteCount"><span class="loading-dots">Loading</span></span>
   </header>
@@ -761,6 +817,43 @@
 
     let sites = [];
     let selectedSiteId = null;
+
+    // ===== Access Key Management =====
+    function getAccessKey() {
+      return document.getElementById('accessKey').value.trim();
+    }
+
+    function updateAccessKeyStatus() {
+      const status = document.getElementById('accessKeyStatus');
+      const key = getAccessKey();
+      status.classList.toggle('active', key.length > 0);
+    }
+
+    function loadAccessKey() {
+      const saved = localStorage.getItem('docpull_access_key');
+      if (saved) {
+        document.getElementById('accessKey').value = saved;
+        updateAccessKeyStatus();
+      }
+    }
+
+    function saveAccessKey() {
+      const key = getAccessKey();
+      if (key) {
+        localStorage.setItem('docpull_access_key', key);
+      } else {
+        localStorage.removeItem('docpull_access_key');
+      }
+      updateAccessKeyStatus();
+    }
+
+    // Add access_key query parameter to URL if key is set
+    function withAccessKey(url) {
+      const key = getAccessKey();
+      if (!key) return url;
+      const separator = url.includes('?') ? '&' : '?';
+      return `${url}${separator}access_key=${encodeURIComponent(key)}`;
+    }
 
     // ===== Utility Functions =====
     function showOutput(el, text, success = true) {
@@ -1145,7 +1238,12 @@
       }
     });
 
+    // ===== Access Key Event Listeners =====
+    document.getElementById('accessKey').addEventListener('input', saveAccessKey);
+    document.getElementById('accessKey').addEventListener('change', saveAccessKey);
+
     // ===== Init =====
+    loadAccessKey();
     restoreCardStates();
     loadSites();
   </script>

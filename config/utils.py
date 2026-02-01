@@ -12,18 +12,22 @@ Environment variables:
 import os
 from pathlib import Path
 
-# Load .env file from project root if it exists
+# Load .env file from config/ or project root if it exists
 try:
     from dotenv import load_dotenv
-    _env_path = Path(__file__).parent.parent / ".env"
-    if _env_path.exists():
-        load_dotenv(_env_path)
+    _config_env_path = Path(__file__).parent / ".env"
+    _root_env_path = Path(__file__).parent.parent / ".env"
+    if _config_env_path.exists():
+        load_dotenv(_config_env_path)
+    elif _root_env_path.exists():
+        load_dotenv(_root_env_path)
 except (ImportError, PermissionError, OSError):
     pass  # dotenv not installed or .env not accessible, rely on environment variables
 
 # Configuration values
 SCRAPER_API_URL: str | None = os.environ.get("SCRAPER_API_URL")
 IS_PROD = os.environ.get("IS_PROD", "false").lower() in ("true", "1", "yes")
+ACCESS_KEY: str | None = os.environ.get("ACCESS_KEY")
 
 
 def get_api_url() -> str:
@@ -56,3 +60,26 @@ def get_auth_headers() -> dict:
     if key and secret:
         return {"Modal-Key": key, "Modal-Secret": secret}
     return {}
+
+
+def get_access_key() -> str | None:
+    """Get the configured access key for protected operations.
+
+    Returns:
+        str | None: The access key if configured, None otherwise
+    """
+    return ACCESS_KEY
+
+
+def verify_access_key(provided_key: str | None) -> bool:
+    """Verify if the provided access key matches the configured one.
+
+    Args:
+        provided_key: The key provided by the client
+
+    Returns:
+        bool: True if access key is not configured (open access) or if keys match
+    """
+    if not ACCESS_KEY:
+        return True  # No key configured = open access
+    return provided_key == ACCESS_KEY
