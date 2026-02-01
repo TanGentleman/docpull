@@ -22,19 +22,33 @@ ALIAS_END = "# <<< docpull alias <<<"
 
 
 def check_venv():
-    """Verify running in a virtual environment (skip if using uv)."""
-    # Check if uv is available - if so, it manages its own venv
-    uv_check = subprocess.run(["uv", "--version"], capture_output=True)
-    if uv_check.returncode == 0:
+    """Verify environment is ready for deployment."""
+    project_root = Path(__file__).parent
+    venv_path = project_root / ".venv"
+
+    if has_uv():
         print("✅ Using uv for dependency management")
+        # uv will create/sync .venv automatically during install_requirements
         return
 
-    if sys.prefix == sys.base_prefix:
-        print("❌ Error: Not running in a virtual environment")
-        print("\nPlease either:")
-        print("  1. Use uv: uv sync && source .venv/bin/activate")
-        print("  2. Or manually: python -m venv .venv && source .venv/bin/activate")
+    # For non-uv users, check for existing venv
+    if not venv_path.exists():
+        print("❌ Error: No virtual environment found at .venv/")
+        print("\nPlease create one:")
+        print(f"  python -m venv {venv_path}")
+        print(f"  source {venv_path}/bin/activate")
+        print("  pip install -e .")
         sys.exit(1)
+
+    # Check if we're using the project's venv or if it exists
+    venv_python = venv_path / "bin" / "python"
+    if not venv_python.exists():
+        print(f"❌ Error: Invalid virtual environment at {venv_path}")
+        print("\nPlease recreate it:")
+        print(f"  rm -rf {venv_path}")
+        print(f"  python -m venv {venv_path}")
+        sys.exit(1)
+
     print("✅ Virtual environment detected")
 
 
@@ -42,21 +56,30 @@ def install_requirements():
     """Install Python dependencies."""
     print("\n📦 Installing dependencies...")
 
-    # Check if uv is available
-    uv_check = subprocess.run(["uv", "--version"], capture_output=True)
     project_root = Path(__file__).parent
 
-    if uv_check.returncode == 0:
-        # Use uv sync (preferred)
-        result = subprocess.run(["uv", "sync"], capture_output=True, text=True, cwd=project_root)
+    if has_uv():
+        # uv sync creates .venv if needed and installs project + dependencies
+        result = subprocess.run(
+            ["uv", "sync"],
+            capture_output=True,
+            text=True,
+            cwd=project_root
+        )
         if result.returncode != 0:
             print("❌ Error running uv sync:")
             print(result.stderr)
             sys.exit(1)
     else:
-        # Fallback to pip install from pyproject.toml
+        # For non-uv: use the project's venv Python for pip install
+        venv_python = project_root / ".venv" / "bin" / "python"
+        if not venv_python.exists():
+            print("❌ Error: Virtual environment not found")
+            print(f"Please create it first: python -m venv {project_root}/.venv")
+            sys.exit(1)
+
         result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-e", str(project_root)],
+            [str(venv_python), "-m", "pip", "install", "-e", str(project_root)],
             capture_output=True,
             text=True
         )
@@ -68,18 +91,28 @@ def install_requirements():
     print("✅ Dependencies installed")
 
 
+def has_uv():
+    """Check if uv is available on the system."""
+    result = subprocess.run(["uv", "--version"], capture_output=True)
+    return result.returncode == 0
+
+
 def get_modal_command():
     """Get the appropriate modal command prefix.
 
     Returns:
         list: Command prefix for running modal
     """
-    # Check if uv is available
-    uv_check = subprocess.run(["uv", "--version"], capture_output=True)
-    if uv_check.returncode == 0:
-        return ["uv", "run", "modal"]
+    project_root = Path(__file__).parent
+    if has_uv():
+        # Use --directory to ensure we're in the project context
+        return ["uv", "run", "--directory", str(project_root), "modal"]
     else:
-        # Use python -m modal when not using uv
+        # Use the project's venv Python directly (avoids activation issues)
+        venv_python = project_root / ".venv" / "bin" / "python"
+        if venv_python.exists():
+            return [str(venv_python), "-m", "modal"]
+        # Fallback to current Python
         return [sys.executable, "-m", "modal"]
 
 

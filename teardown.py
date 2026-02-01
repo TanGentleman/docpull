@@ -19,18 +19,28 @@ ALIAS_START = "# >>> docpull alias >>>"
 ALIAS_END = "# <<< docpull alias <<<"
 
 
+def has_uv():
+    """Check if uv is available on the system."""
+    result = subprocess.run(["uv", "--version"], capture_output=True)
+    return result.returncode == 0
+
+
 def get_modal_command():
     """Get the appropriate modal command prefix.
 
     Returns:
         list: Command prefix for running modal
     """
-    # Check if uv is available - if so, use uv run modal
-    uv_check = subprocess.run(["uv", "--version"], capture_output=True)
-    if uv_check.returncode == 0:
-        return ["uv", "run", "modal"]
+    project_root = Path(__file__).parent
+    if has_uv():
+        # Use --directory to ensure we're in the project context
+        return ["uv", "run", "--directory", str(project_root), "modal"]
     else:
-        # Use python -m modal when not using uv
+        # Use the project's venv Python directly (avoids activation issues)
+        venv_python = project_root / ".venv" / "bin" / "python"
+        if venv_python.exists():
+            return [str(venv_python), "-m", "modal"]
+        # Fallback to current Python
         return [sys.executable, "-m", "modal"]
 
 
