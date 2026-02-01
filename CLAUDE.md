@@ -1,35 +1,35 @@
 # CLAUDE.md
 
-Modal-based documentation scraper. See README.md for usage.
+Modal-based documentation scraper.
 
-## Maintaining This Project
+## Project Structure
 
-### Adding New Sites
+```
+docpull/
+├── api/                    # Modal API
+│   ├── scraper.py         # FastAPI endpoints
+│   ├── bulk.py            # Bulk job handling
+│   └── urls.py            # URL utilities
+├── cli/main.py            # Typer CLI
+├── config/
+│   ├── sites.json         # Site definitions
+│   └── utils.py           # Env loading
+├── ui/app.py              # Gradio UI
+├── setup.py               # Deploy script
+└── teardown.py            # Stop deployments
+```
 
-1. Use `discover` to generate initial config from any doc URL
-2. Add config to `scraper/config/sites.json`
-3. Test with `links` command to verify URL patterns work
-4. Test with `content` command on a sample page
-5. Adjust selectors in config if content extraction is incorrect
+## Development
 
-### Development Workflow
+```bash
+modal serve api/scraper.py   # API with hot-reload
+modal serve ui/app.py        # UI with hot-reload
+python setup.py              # Deploy both
+```
 
-- **Local testing**: `modal serve content-scraper-api.py` for API hot-reload
-- **UI development**: Run `python ui/setup.py` once, then `modal serve ui/app.py`
-- **Config changes**: Edit `scraper/config/sites.json`, test immediately (no redeploy needed)
-- **API changes**: Hot-reload in serve mode automatically applies changes
+## Adding Sites
 
-### Key Configuration Points
-
-- `scraper/config/sites.json` - All site definitions
-- Site configs use either `fetch` (fast, simple) or `browser` (JS-heavy sites) mode
-- Content selectors must be CSS or XPath strings
-- Link patterns use regex to filter relevant URLs
-
-### Testing Changes
-
-Before committing changes:
-- Verify existing sites still work with `sites` command
-- Test new configs with both `links` and `content` commands
-- Check that output markdown is properly formatted
-- Use `--force` flag to bypass cache when testing fixes
+1. `docpull discover <url>` to generate config
+2. Add to `config/sites.json`
+3. Test: `docpull links <id>` and `docpull content <id> <path>`
+4. Use `--force` to bypass cache when testing

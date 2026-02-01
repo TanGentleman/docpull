@@ -24,52 +24,51 @@ UI_APP_NAME = "docpull"
 
 
 def check_venv():
-    """Verify running in a virtual environment."""
+    """Verify running in a virtual environment (skip if using uv)."""
+    # Check if uv is available - if so, it manages its own venv
+    uv_check = subprocess.run(["uv", "--version"], capture_output=True)
+    if uv_check.returncode == 0:
+        print("✅ Using uv for dependency management")
+        return
+
     if sys.prefix == sys.base_prefix:
         print("❌ Error: Not running in a virtual environment")
-        print("\nPlease activate a virtual environment first:")
-        print("  python -m venv venv")
-        print("  source venv/bin/activate  # On macOS/Linux")
-        print("  venv\\Scripts\\activate     # On Windows")
+        print("\nPlease either:")
+        print("  1. Use uv: uv sync && source .venv/bin/activate")
+        print("  2. Or manually: python -m venv .venv && source .venv/bin/activate")
         sys.exit(1)
     print("✅ Virtual environment detected")
 
 
 def install_requirements():
-    """Install Python dependencies from requirements.txt."""
+    """Install Python dependencies."""
     print("\n📦 Installing dependencies...")
-    requirements_path = Path(__file__).parent / "requirements.txt"
 
-    if not requirements_path.exists():
-        print("❌ Error: requirements.txt not found")
-        sys.exit(1)
-
-    # Check if UV is available
-    uv_check = subprocess.run(
-        ["uv", "--version"],
-        capture_output=True,
-        text=True
-    )
+    # Check if uv is available
+    uv_check = subprocess.run(["uv", "--version"], capture_output=True)
 
     if uv_check.returncode == 0:
-        # Use UV for installation
-        result = subprocess.run(
-            ["uv", "pip", "install", "-r", str(requirements_path)],
-            capture_output=True,
-            text=True
-        )
+        # Use uv sync (preferred)
+        result = subprocess.run(["uv", "sync"], capture_output=True, text=True)
+        if result.returncode != 0:
+            print("❌ Error running uv sync:")
+            print(result.stderr)
+            sys.exit(1)
     else:
         # Fallback to pip
+        requirements_path = Path(__file__).parent / "requirements.txt"
+        if not requirements_path.exists():
+            print("❌ Error: requirements.txt not found (install uv or create requirements.txt)")
+            sys.exit(1)
         result = subprocess.run(
             [sys.executable, "-m", "pip", "install", "-r", str(requirements_path)],
             capture_output=True,
             text=True
         )
-
-    if result.returncode != 0:
-        print("❌ Error installing dependencies:")
-        print(result.stderr)
-        sys.exit(1)
+        if result.returncode != 0:
+            print("❌ Error installing dependencies:")
+            print(result.stderr)
+            sys.exit(1)
 
     print("✅ Dependencies installed")
 
@@ -240,7 +239,7 @@ def display_summary(api_url, ui_url, open_browser=False):
     print("\n📚 Next steps:")
     print("  - Test the API: curl " + api_url)
     print("  - Visit the UI in your browser")
-    print("  - Use the CLI: python cli/main.py sites")
+    print("  - Use the CLI: docpull sites")
     print("\n🛑 To stop deployments:")
     print("  python teardown.py")
     print("=" * 60)

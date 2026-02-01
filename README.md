@@ -1,59 +1,29 @@
 # docpull
 
-Modal-based documentation scraper that fetches documentation from various sites and saves it locally as markdown files.
+Modal-based documentation scraper. Fetches docs from any site and saves as markdown.
 
-## Features
-
-- **Multi-site support**: Pre-configured for popular documentation sites
-- **Smart caching**: Avoids redundant scraping with automatic cache management
-- **Parallel processing**: Bulk scraping jobs with concurrent workers
-- **Auto-discovery**: Analyze any doc site to generate configuration
-- **Export tools**: Download entire sites as ZIP archives
-- **REST API**: Full-featured API deployed on Modal
-- **Web UI**: Interactive interface for browsing and scraping
-
-## Requirements
-
-- Python 3.12+
-- Modal account (free tier available at [modal.com](https://modal.com))
-- Optional: [uv](https://github.com/astral-sh/uv) for faster dependency management
-
-## Quick Start
-
-### 1. Install
+## Setup
 
 ```bash
-# Clone the repository
+# Clone and install
 git clone https://github.com/yourusername/docpull.git
 cd docpull
-
-# Install with uv (recommended - faster)
 uv sync
 
-# Or with pip
-pip install -e .
-```
+# Authenticate with Modal (one-time)
+modal token set
 
-> **Note:** Installing with `pip install -e .` makes the `docpull` command available globally in your environment.
-
-### 2. Deploy to Modal
-
-```bash
+# Deploy to Modal
 python setup.py
 ```
 
-This will:
-- Deploy the API to Modal
-- Generate `.env` with your API URL
-- Display the Web UI URL
-
-### 3. Start Scraping
+## Usage
 
 ```bash
 # List available sites
 docpull sites
 
-# Get all documentation links for a site
+# Get all doc links for a site
 docpull links modal
 
 # Fetch a single page
@@ -61,346 +31,25 @@ docpull content modal /docs/guide
 
 # Download entire site
 docpull index modal
+
+# Discover config for new sites
+docpull discover https://example.com/docs
 ```
 
-## Usage
-
-### CLI Commands
-
-**Basic Operations:**
-```bash
-docpull sites                        # List available sites
-docpull links <site-id>              # Get all doc links
-docpull content <site-id> <path>     # Fetch single page
-docpull index <site-id>              # Bulk fetch entire site
-docpull download <site-id>           # Download site as ZIP
-```
-
-**Site Discovery:**
-```bash
-docpull discover <url>               # Analyze a doc page and suggest config
-```
-
-**Bulk Jobs** (fire-and-forget parallel scraping):
-```bash
-docpull bulk urls.txt                # Submit job, returns job_id
-docpull job <job_id>                 # Check job status
-docpull job <job_id> --watch         # Watch live progress
-docpull jobs                         # List recent jobs
-```
-
-**Export:**
-```bash
-docpull export urls.txt              # Export URLs as ZIP (cached only)
-docpull export urls.txt --scrape     # Export with fresh scraping
-docpull export urls.txt --unzip      # Auto-extract after download
-```
-
-**Cache Management:**
-```bash
-docpull cache stats                  # Show cache statistics
-docpull cache keys [site-id]         # List cached URLs
-docpull cache clear <site-id>        # Clear cache for a site
-```
-
-**Alternative invocation methods** (if not installed):
-```bash
-./docpull.py <command>               # Wrapper script
-python -m cli.main <command>         # Module invocation
-```
-
-### Web UI
-
-After deploying with `python setup.py`, the Web UI URL will be displayed. The UI provides:
-- Interactive site browsing
-- One-click scraping
-- Real-time progress tracking
-- Cache management
-
-### Output
-
-Scraped documentation is saved to:
-```
-./docs/<site-id>/<page-path>.md
-```
-
-Example:
-```
-./docs/modal/docs_guide_webhook-urls.md
-```
-
-## Configuration
-
-### Site Configuration
-
-Site definitions are stored in `scraper/config/sites.json`. Each site has:
-
-| Field | Description | Example |
-|-------|-------------|---------|
-| `baseUrl` | Root URL of documentation | `"https://modal.com"` |
-| `mode` | Scraping mode: `fetch` (fast) or `browser` (JS-heavy) | `"fetch"` |
-| `links.startUrls` | Entry points for crawling | `[""]` or `["/docs"]` |
-| `links.maxDepth` | Recursion depth (fetch mode only) | `2` |
-| `links.pattern` | Regex pattern to filter URLs | `"/docs"` |
-| `content.selector` | CSS/XPath selector for content | `"main article"` |
-| `content.method` | Extraction method: `inner_html` or `click_copy` | `"inner_html"` |
-| `content.waitUntil` | Page load event to wait for | `"domcontentloaded"` |
-
-### Adding New Sites
-
-The easiest way to add a new site is to use the discovery tool:
-
-```bash
-# Analyze a documentation page
-docpull discover https://example.com/docs/intro
-
-# Copy the suggested config to scraper/config/sites.json
-# Test link discovery
-docpull links your-site-id
-
-# Test content extraction
-docpull content your-site-id /some-page
-
-# If tests pass, index the site
-docpull index your-site-id
-```
-
-### Environment Variables
-
-Configuration is managed via `.env` (auto-generated by `setup.py`):
-
-```env
-SCRAPER_API_URL=https://your-workspace--content-scraper-api-web.modal.run
-IS_PROD=false
-MODAL_KEY=your-key        # Optional: for authenticated access
-MODAL_SECRET=your-secret  # Optional: for authenticated access
-```
-
-## REST API
-
-The Modal-deployed API provides full programmatic access:
-
-### Sites
-```http
-GET  /sites                    # List all configured sites
-GET  /sites/{id}/links         # Get all documentation links for a site
-  ?max_age=0                   # Force fresh crawl
-GET  /sites/{id}/content       # Get markdown content for a page
-  ?path=/docs/guide            # Page path
-  ?max_age=0                   # Force fresh scrape
-POST /sites/{id}/index         # Bulk fetch entire site (parallel)
-  ?max_concurrent=50           # Concurrent requests
-GET  /sites/{id}/download      # Download site as ZIP
-```
-
-### Discovery
-```http
-GET  /discover                 # Analyze a page and suggest config
-  ?url=https://...             # URL to analyze
-```
-
-### Bulk Jobs
-```http
-POST /jobs/bulk                # Submit parallel scrape job
-  body: {"urls": [...]}        # List of URLs
-GET  /jobs/{job_id}            # Get job status and progress
-GET  /jobs                     # List recent jobs
-  ?limit=20                    # Max jobs to return
-```
-
-### Export
-```http
-POST /export/zip               # Export URLs as ZIP
-  body: {
-    "urls": [...],
-    "cached_only": true,       # Only return cached content
-    "include_manifest": true   # Include manifest.json
-  }
-```
-
-### Cache
-```http
-GET  /cache/stats              # Get cache statistics
-GET  /cache/keys               # List all cached URLs
-  ?site_id=modal               # Filter by site
-  ?content_only=true           # Only content entries
-DELETE /cache/{site_id}        # Clear cache for a site
-```
-
-## Development
-
-### Project Structure
-
-```
-docpull/
-├── cli/                       # CLI tool
-│   ├── main.py               # Typer CLI application
-│   └── __init__.py
-├── config/                    # Configuration management
-│   ├── utils.py              # Env var loading, API URL
-│   └── __init__.py
-├── scraper/                   # Modal scraper application
-│   ├── config/
-│   │   └── sites.json        # Site definitions
-│   ├── content-scraper-api.py # FastAPI REST API
-│   ├── scraper.py            # Core scraping logic
-│   └── utils.py              # Helper functions
-├── ui/                        # Web UI (Modal deployed)
-│   └── app.py                # Gradio interface
-├── setup.py                   # Deployment script
-├── pyproject.toml            # Package metadata
-└── README.md
-```
-
-### Local Development
-
-**Run API locally with hot-reload:**
-```bash
-modal serve scraper/content-scraper-api.py
-```
-
-**Run UI locally:**
-```bash
-# One-time setup
-python ui/setup.py
-
-# Serve with hot-reload
-modal serve ui/app.py
-```
-
-**Testing config changes:**
-```bash
-# Edit scraper/config/sites.json
-# Test immediately (no redeploy needed)
-docpull links your-site-id
-docpull content your-site-id /test-page --force
-```
-
-### Deployment
-
-```bash
-# Deploy API and UI to Modal
-python setup.py
-
-# Deploy only API
-modal deploy scraper/content-scraper-api.py
-
-# Deploy only UI
-modal deploy ui/app.py
-```
-
-## Examples
-
-### Scrape a Single Site
-
-```bash
-# List available sites
-docpull sites
-
-# Get all links for Modal docs
-docpull links modal
-
-# Download entire Modal documentation
-docpull index modal
-```
-
-### Bulk Scraping from URLs
-
-```bash
-# Create urls.txt with one URL per line
-cat > urls.txt << EOF
-https://modal.com/docs/guide
-https://modal.com/docs/examples
-https://modal.com/docs/reference
-EOF
-
-# Submit bulk job
-docpull bulk urls.txt
-
-# Watch progress
-docpull job <job-id> --watch
-```
-
-### Export Specific Pages
-
-```bash
-# Export cached pages only (fast)
-docpull export urls.txt -o my-docs.zip
-
-# Export with fresh scraping
-docpull export urls.txt --scrape
-
-# Export and auto-extract
-docpull export urls.txt --unzip
-```
-
-### Discover New Site Configuration
-
-```bash
-# Analyze any documentation page
-docpull discover https://fastapi.tiangolo.com/tutorial/
-
-# Review suggested config
-# Add to scraper/config/sites.json
-# Test the configuration
-docpull links fastapi
-docpull content fastapi /tutorial/first-steps
-```
-
-## Troubleshooting
-
-### Module Import Errors
-
-If you see `ModuleNotFoundError: No module named 'config'` when running `python cli/main.py`:
-
-**Solution 1: Install the package (recommended)**
-```bash
-# Install in editable mode
-pip install -e .
-# or with uv
-uv pip install -e .
-
-# Then use the console script
-docpull sites
-```
-
-**Solution 2: Use the wrapper script**
+**Alternative** (if not installed via `uv sync`):
 ```bash
 ./docpull.py sites
 ```
 
-**Solution 3: Use module invocation**
-```bash
-python -m cli.main sites
-```
+Output is saved to `./docs/<site-id>/<page-path>.md`.
 
-**Why this happens:** Running `python cli/main.py` directly doesn't add the project root to Python's path, so it can't find the `config` module. The above solutions ensure proper module resolution.
+## Adding Sites
 
-### API Not Configured
+1. Run `docpull discover <url>` to generate config
+2. Add to `config/sites.json`
+3. Test with `docpull links <site-id>` and `docpull content <site-id> <path>`
 
-If you see `SCRAPER_API_URL is not configured`:
+## More
 
-```bash
-# Run setup to deploy and configure
-python setup.py
-
-# Or manually set in .env
-echo "SCRAPER_API_URL=https://your-url.modal.run" > .env
-```
-
-### Content Extraction Fails
-
-If content extraction returns empty or incorrect content:
-
-```bash
-# Use discovery to analyze the page
-docpull discover <url>
-
-# Update scraper/config/sites.json with suggested config
-# Test with --force to bypass cache
-docpull content <site-id> <path> --force
-```
-
-## License
-
-MIT
+- [API Reference](API.md) - REST API, bulk jobs, export, cache
+- [Teardown](teardown.py) - Stop deployments with `python teardown.py`
