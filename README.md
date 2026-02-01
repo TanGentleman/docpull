@@ -11,7 +11,7 @@ cd docpull
 uv sync
 
 # Authenticate with Modal (one-time)
-modal token set
+modal token new
 
 # Deploy to Modal
 python deploy.py
