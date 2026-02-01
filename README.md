@@ -6,22 +6,13 @@ Modal-based documentation scraper. Fetches docs from various sites and saves loc
 
 ```bash
 # Install dependencies
+pip install -r requirements.txt
+
+# Or with uv (faster):
 uv sync
 
-# Or (preferably in a virtual environment):
-pip install -r requirements.txt
-```
-
-# Set up Modal credentials (create .env file)
-MODAL_KEY=wk-...
-MODAL_SECRET=ws-...
-
-# Terminal 1: Deploy the API with hot-reload server
-modal serve content-scraper-api.py
-
-# Terminal 2: Configure and serve the UI
-python ui/setup.py          # Run once to configure API URL
-modal serve ui/app.py        # Then start the UI
+# Deploy to Modal
+python setup.py
 ```
 
 ## Usage
@@ -29,28 +20,28 @@ modal serve ui/app.py        # Then start the UI
 ### CLI
 
 ```bash
-python docpull.py sites                     # List available sites
-python docpull.py links modal               # Get all doc links
-python docpull.py content modal /guide      # Fetch single page
-python docpull.py index modal               # Bulk fetch entire site
-python docpull.py download modal            # Download site as ZIP
+python cli/main.py sites                     # List available sites
+python cli/main.py links modal               # Get all doc links
+python cli/main.py content modal /guide      # Fetch single page
+python cli/main.py index modal               # Bulk fetch entire site
+python cli/main.py download modal            # Download site as ZIP
 
 # Bulk jobs (fire-and-forget parallel scraping)
-python docpull.py bulk urls.txt             # Submit job, returns job_id
-python docpull.py job <job_id>              # Check job status
-python docpull.py job <job_id> --watch      # Watch live progress
-python docpull.py jobs                      # List recent jobs
+python cli/main.py bulk urls.txt             # Submit job, returns job_id
+python cli/main.py job <job_id>              # Check job status
+python cli/main.py job <job_id> --watch      # Watch live progress
+python cli/main.py jobs                      # List recent jobs
 ```
 
 ### Web UI
 
-After running `modal serve ui/app.py`, open the URL shown in the terminal to access the web interface.
+After running `python setup.py`, open the UI URL shown in the terminal.
 
 Output: `./docs/<site>/<path>.md`
 
 ## Configuration
 
-Site configs in `scraper/config/sites.json`. Key fields:
+Site configs in `config/sites.json`. Key fields:
 
 | Field | Description |
 |-------|-------------|
