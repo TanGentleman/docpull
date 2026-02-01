@@ -13,28 +13,31 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-# Check .env exists before attempting deployment
-_local_env = Path(__file__).parent.parent / ".env"
-if not _local_env.exists():
-    raise RuntimeError(
-        "\n" + "=" * 70 + "\n"
-        "ERROR: .env file not found!\n\n"
-        "Run 'python deploy.py' to deploy the API and generate .env,\n"
-        "then deploy the UI.\n"
-        + "=" * 70
-    )
+LOCAL_ENV_PATH = Path(__file__).parent.parent / ".env"
+MODAL_ENV_PATH = Path("/root/.env")
+
+def setup_env():
+    from dotenv import load_dotenv
+    if not MODAL_ENV_PATH.exists() and not LOCAL_ENV_PATH.exists():
+        raise RuntimeError(
+            "\n" + "=" * 70 + "\n"
+            "ERROR: .env file not found in either root or local directory!\n\n"
+            "Run 'python deploy.py' to deploy the API and generate .env,\n"
+            "then deploy the UI.\n"
+            + "=" * 70 + "\n"
+        )
+    load_dotenv(MODAL_ENV_PATH)
 
 # Lightweight image - FastAPI + httpx + dotenv (loads .env in Modal)
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install("fastapi[standard]", "httpx", "python-dotenv")
     .add_local_file("ui/ui.html", "/root/ui.html")
-    .add_local_file(".env", "/root/.env")
+    .add_local_file(str(LOCAL_ENV_PATH), str(MODAL_ENV_PATH))
 )
 
-# Load .env inside Modal container
-from dotenv import load_dotenv
-load_dotenv("/root/.env")
+# Load .env
+setup_env()
 
 # Get config from environment
 SCRAPER_API_URL = os.environ.get("SCRAPER_API_URL")
