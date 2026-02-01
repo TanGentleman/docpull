@@ -1785,8 +1785,14 @@ async def get_job_status(job_id: str):
 @web_app.get("/jobs")
 async def list_jobs(limit: int = Query(default=20, le=100)):
     """List recent bulk scrape jobs."""
+    try:
+        all_keys = list(jobs.keys())
+    except Exception:
+        # Dict access failed (e.g., not initialized)
+        return {"jobs": []}
+
     result = []
-    for job_id in list(jobs.keys())[-limit:]:
+    for job_id in all_keys[-limit:]:
         try:
             job = jobs[job_id]
             result.append({
@@ -1796,8 +1802,8 @@ async def list_jobs(limit: int = Query(default=20, le=100)):
                 "sites": job["input"]["sites"],
                 "progress": f"{job['progress']['completed']}/{job['input']['to_scrape']}",
             })
-        except KeyError:
-            # Job was deleted between keys() and get()
+        except Exception:
+            # Job was deleted or malformed
             continue
     return {"jobs": sorted(result, key=lambda x: x["created_at"], reverse=True)}
 
