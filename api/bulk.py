@@ -7,15 +7,13 @@ from enum import Enum
 
 import modal
 
-from api.urls import is_asset_url  # noqa: F401 - re-exported for backwards compat
-
-# Shared Modal Dicts (same names as main API for interop)
+# Shared Modal Dict for job tracking
 jobs = modal.Dict.from_name("scrape-jobs", create_if_missing=True)
 
 # Constants
 MAX_CONTAINERS = 100
 DEFAULT_DELAY_MS = 1000
-USER_AGENT = "DocPull/1.0 (+https://github.com/TanGentleman/docpull)"
+USER_AGENT = "DocPull/1.0"
 
 
 class JobStatus(str, Enum):
