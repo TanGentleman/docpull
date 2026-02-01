@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-# App names deployed by setup.py
+# App names deployed by deploy.py
 DOCPULL_APP_NAMES = {"content-scraper-api", "docpull"}
 
 # Valid states for apps we can stop

@@ -14,7 +14,7 @@ uv sync
 modal token set
 
 # Deploy to Modal
-python setup.py
+python deploy.py
 ```
 
 ## Usage
@@ -34,11 +34,6 @@ docpull index modal
 
 # Discover config for new sites
 docpull discover https://example.com/docs
-```
-
-**Alternative** (if not installed via `uv sync`):
-```bash
-./docpull.py sites
 ```
 
 Output is saved to `./docs/<site-id>/<page-path>.md`.

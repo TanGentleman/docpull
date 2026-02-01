@@ -1,7 +1,7 @@
 """Central configuration for docpull.
 
 Reads configuration from environment variables, with .env file support.
-Run 'python setup.py' to auto-generate .env after deployment.
+Run 'python deploy.py' to auto-generate .env after deployment.
 
 Environment variables:
 - SCRAPER_API_URL: The Modal API URL (required)
@@ -39,7 +39,7 @@ def get_api_url() -> str:
         raise RuntimeError(
             "SCRAPER_API_URL is not configured.\n"
             "Either:\n"
-            "  1. Run 'python setup.py' to deploy and auto-configure, or\n"
+            "  1. Run 'python deploy.py' to deploy and auto-configure, or\n"
             "  2. Set SCRAPER_API_URL in .env or as an environment variable"
         )
     return SCRAPER_API_URL

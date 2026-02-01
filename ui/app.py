@@ -19,7 +19,7 @@ if not _local_env.exists():
     raise RuntimeError(
         "\n" + "=" * 70 + "\n"
         "ERROR: .env file not found!\n\n"
-        "Run 'python setup.py' to deploy the API and generate .env,\n"
+        "Run 'python deploy.py' to deploy the API and generate .env,\n"
         "then deploy the UI.\n"
         + "=" * 70
     )

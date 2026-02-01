@@ -15,7 +15,7 @@ docpull/
 │   ├── sites.json         # Site definitions
 │   └── utils.py           # Env loading
 ├── ui/app.py              # Gradio UI
-├── setup.py               # Deploy script
+├── deploy.py              # Deploy script
 └── teardown.py            # Stop deployments
 ```
 
@@ -24,7 +24,7 @@ docpull/
 ```bash
 modal serve api/scraper.py   # API with hot-reload
 modal serve ui/app.py        # UI with hot-reload
-python setup.py              # Deploy both
+python deploy.py              # Deploy both
 ```
 
 ## Adding Sites
