@@ -101,7 +101,7 @@ def cleanup_config():
 
 
 def remove_global_alias():
-    """Prompt user to remove global docpull alias from zshrc.
+    """Remove global docpull alias from zshrc.
 
     Returns:
         bool: True if alias was removed, False otherwise
@@ -115,16 +115,7 @@ def remove_global_alias():
     if ALIAS_START not in content:
         return False
 
-    print("\n🔧 Remove global 'docpull' command from ~/.zshrc?")
-
-    try:
-        response = input("   Remove global docpull alias? [y/N]: ").strip().lower()
-    except EOFError:
-        return False
-
-    if response != "y":
-        print("   Skipped. Alias remains in ~/.zshrc")
-        return False
+    print("\n🧹 Removing global docpull alias from ~/.zshrc...")
 
     # Remove the alias block using regex
     pattern = rf"\n?{re.escape(ALIAS_START)}.*?{re.escape(ALIAS_END)}\n?"
@@ -132,11 +123,10 @@ def remove_global_alias():
 
     try:
         zshrc_path.write_text(new_content)
-        print("   ✅ Removed from ~/.zshrc")
-        print("   Run 'source ~/.zshrc' or open a new terminal to apply")
+        print("✅ Removed docpull alias from ~/.zshrc")
         return True
     except OSError as e:
-        print(f"   ❌ Failed to update ~/.zshrc: {e}")
+        print(f"⚠️  Could not remove alias from ~/.zshrc: {e}")
         return False
 
 
