@@ -10,6 +10,8 @@ Automates the deployment process:
 6. Display summary with URLs
 """
 
+import argparse
+import json
 import re
 import subprocess
 import sys
@@ -171,26 +173,54 @@ def display_summary(api_url, ui_url):
 
 def main():
     """Run the deployment process."""
-    print("🔧 Docpull Deployment Setup")
-    print("=" * 60)
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="Deploy docpull to Modal")
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output results in JSON format (for programmatic use)",
+    )
+    args = parser.parse_args()
 
-    # Step 1: Check virtual environment
-    check_venv()
+    json_mode = args.json
 
-    # Step 2: Install dependencies
-    install_requirements()
+    if not json_mode:
+        print("🔧 Docpull Deployment Setup")
+        print("=" * 60)
 
-    # Step 3: Deploy API
-    api_url = deploy_api()
+    try:
+        # Step 1: Check virtual environment
+        check_venv()
 
-    # Step 4: Save configuration
-    save_config(api_url)
+        # Step 2: Install dependencies
+        install_requirements()
 
-    # Step 5: Deploy UI
-    ui_url = deploy_ui()
+        # Step 3: Deploy API
+        api_url = deploy_api()
 
-    # Step 6: Display summary
-    display_summary(api_url, ui_url)
+        # Step 4: Save configuration
+        save_config(api_url)
+
+        # Step 5: Deploy UI
+        ui_url = deploy_ui()
+
+        # Step 6: Display summary
+        if json_mode:
+            # Output JSON for programmatic parsing
+            result = {
+                "status": "success",
+                "api_url": api_url,
+                "ui_url": ui_url,
+            }
+            print(json.dumps(result))
+        else:
+            display_summary(api_url, ui_url)
+
+    except SystemExit as e:
+        if json_mode and e.code != 0:
+            result = {"status": "error", "error": "Deployment failed"}
+            print(json.dumps(result))
+        raise
 
 
 if __name__ == "__main__":
