@@ -21,8 +21,11 @@ ALIAS_END = "# <<< docpull alias <<<"
 
 def has_uv():
     """Check if uv is available on the system."""
-    result = subprocess.run(["uv", "--version"], capture_output=True)
-    return result.returncode == 0
+    try:
+        result = subprocess.run(["uv", "--version"], capture_output=True)
+        return result.returncode == 0
+    except FileNotFoundError:
+        return False
 
 
 def get_modal_command():

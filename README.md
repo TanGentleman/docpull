@@ -6,7 +6,7 @@ Modal-based documentation scraper. Fetches docs from any site and saves as markd
 
 ```bash
 # Clone and install
-git clone https://github.com/yourusername/docpull.git
+git clone https://github.com/TanGentleman/docpull.git
 cd docpull
 uv sync
 
