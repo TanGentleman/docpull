@@ -61,8 +61,6 @@ def check_venv():
     else:
         print("✅ Virtual environment detected")
 
-    print("✅ Virtual environment detected")
-
 
 def install_requirements():
     """Install Python dependencies."""
