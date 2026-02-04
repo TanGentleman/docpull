@@ -29,7 +29,7 @@ app.add_typer(cache_app, name="cache")
 @app.command()
 def sites():
     """List all available site IDs."""
-    resp = httpx.get(f"{API_BASE}/sites", timeout=30.0)
+    resp = httpx.get(f"{API_BASE}/sites", headers=get_auth_headers(), timeout=30.0)
     resp.raise_for_status()
     data = resp.json()
     for site in data["sites"]:
@@ -610,7 +610,7 @@ def jobs(
 @cache_app.command(name="stats")
 def cache_stats():
     """Show cache statistics."""
-    resp = httpx.get(f"{API_BASE}/cache/stats", timeout=30.0)
+    resp = httpx.get(f"{API_BASE}/cache/stats", headers=get_auth_headers(), timeout=30.0)
     resp.raise_for_status()
     data = resp.json()
     print(f"Total cache entries: {data['total_entries']}")
@@ -631,7 +631,7 @@ def cache_keys(
     if site_id:
         params["site_id"] = site_id
     resp = httpx.get(
-        f"{API_BASE}/cache/keys", params=params, timeout=60.0
+        f"{API_BASE}/cache/keys", params=params, headers=get_auth_headers(), timeout=60.0
     )
     resp.raise_for_status()
     data = resp.json()
@@ -645,7 +645,7 @@ def cache_clear(
     site_id: Annotated[str, typer.Argument(help="Site ID to clear cache for")],
 ):
     """Clear cache for a site."""
-    resp = httpx.delete(f"{API_BASE}/cache/{site_id}", timeout=30.0)
+    resp = httpx.delete(f"{API_BASE}/cache/{site_id}", headers=get_auth_headers(), timeout=30.0)
     resp.raise_for_status()
     print(f"Cleared {resp.json()['deleted']} cache entries for {site_id}")
 
