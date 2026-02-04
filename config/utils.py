@@ -5,8 +5,7 @@ Run 'python deploy.py' to auto-generate .env after deployment.
 
 Environment variables:
 - SCRAPER_API_URL: The Modal API URL (required)
-- IS_PROD: Production mode flag (optional, default: false)
-- MODAL_KEY / MODAL_SECRET: Authentication credentials (optional)
+- ACCESS_KEY: API access key for authentication (optional)
 """
 
 import os
@@ -23,7 +22,7 @@ except (ImportError, PermissionError, OSError):
 
 # Configuration values
 SCRAPER_API_URL: str | None = os.environ.get("SCRAPER_API_URL")
-IS_PROD = os.environ.get("IS_PROD", "false").lower() in ("true", "1", "yes")
+ACCESS_KEY: str | None = os.environ.get("ACCESS_KEY")
 
 
 def get_api_url() -> str:
@@ -46,13 +45,11 @@ def get_api_url() -> str:
 
 
 def get_auth_headers() -> dict:
-    """Get Modal authentication headers if configured.
+    """Get authentication headers if configured.
 
     Returns:
-        dict: Headers with Modal-Key and Modal-Secret if both are set, empty dict otherwise
+        dict: Headers with X-Access-Key if ACCESS_KEY is set, empty dict otherwise
     """
-    key = os.environ.get("MODAL_KEY")
-    secret = os.environ.get("MODAL_SECRET")
-    if key and secret:
-        return {"Modal-Key": key, "Modal-Secret": secret}
+    if ACCESS_KEY:
+        return {"X-Access-Key": ACCESS_KEY}
     return {}

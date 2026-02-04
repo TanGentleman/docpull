@@ -9,35 +9,28 @@ import sys
 from pathlib import Path
 
 
-def get_app_name() -> str:
-    """Get APP_NAME from .env file or return default.
-
-    Returns:
-        str: The app name (alphanumeric only), defaults to "doc"
-    """
+def get_app_name_from_env() -> str | None:
+    """Get APP_NAME from .env file if it exists."""
     env_path = Path(__file__).parent / ".env"
-    app_name = "doc"  # default
+    if not env_path.exists():
+        return None
 
-    if env_path.exists():
-        for line in env_path.read_text().splitlines():
-            line = line.strip()
-            if line.startswith("APP_NAME="):
-                app_name = line.split("=", 1)[1].strip().strip('"').strip("'")
-                break
-
-    # Sanitize: Modal app names must be alphanumeric (with hyphens/underscores)
-    app_name = re.sub(r'[^a-zA-Z0-9-_]', '', app_name)
-    return app_name or "doc"
+    for line in env_path.read_text().splitlines():
+        line = line.strip()
+        if line.startswith("APP_NAME="):
+            app_name = line.split("=", 1)[1].strip().strip('"').strip("'")
+            # Sanitize: Modal app names must be alphanumeric (with hyphens/underscores)
+            app_name = re.sub(r'[^a-zA-Z0-9-_]', '', app_name)
+            return app_name or None
+    return None
 
 
-# App name for Modal deployment (loaded from .env, matches deploy.py)
-APP_NAME = get_app_name()
+# Legacy app names to stop during teardown
+LEGACY_APP_NAMES = {"content-scraper-api", "docpull", "doc"}
 
-# Legacy app names to also stop during teardown
-LEGACY_APP_NAMES = {"content-scraper-api", "docpull"}
-
-# Combined set: current app + legacy names
-DOCPULL_APP_NAMES = {APP_NAME} | LEGACY_APP_NAMES
+# Add current app name from .env if different from legacy names
+_current_app = get_app_name_from_env()
+DOCPULL_APP_NAMES = LEGACY_APP_NAMES | ({_current_app} if _current_app else set())
 
 # Valid states for apps we can stop
 RUNNING_STATES = {"deployed", "ephemeral"}

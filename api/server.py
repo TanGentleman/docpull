@@ -39,29 +39,36 @@ from api.bulk import (
 )
 from api.urls import clean_url, is_asset_url, normalize_page_path, normalize_path, normalize_url
 
-def get_app_name() -> str:
+def load_env_config() -> dict[str, str]:
+    """Load configuration from .env file.
+
+    Returns dict with APP_NAME, ACCESS_KEY (if set), and SCRAPER_API_URL (if set).
+    """
     from dotenv import load_dotenv
-    local_env_path = Path(__file__).parent.parent / ".env"
-    remote_env_path = Path("/root/.env")
-    if not local_env_path.exists() and not remote_env_path.exists():
-        raise FileNotFoundError(f"Environment file not found: {local_env_path}")
-    if local_env_path.exists():
-        load_dotenv(local_env_path)
-    else:
-        load_dotenv(remote_env_path)
-    if not os.environ.get("APP_NAME"):
-        print(f"APP_NAME is not set in the environment file: {local_env_path}")
-        return "doc"
-    app_name = os.environ["APP_NAME"]
-    app_name = re.sub(r'[^a-zA-Z0-9]', '', app_name)
-    if not app_name:
-        raise ValueError("APP_NAME is not a valid Modal app name")
-    return app_name
+
+    # Try local first (dev), then remote (deployed)
+    for env_path in [Path(__file__).parent.parent / ".env", Path("/root/.env")]:
+        if env_path.exists():
+            load_dotenv(env_path)
+            break
+
+    app_name = os.environ.get("APP_NAME", "doc")
+    app_name = re.sub(r'[^a-zA-Z0-9-_]', '', app_name) or "doc"
+
+    return {
+        "APP_NAME": app_name,
+        "ACCESS_KEY": os.environ.get("ACCESS_KEY"),
+        "SCRAPER_API_URL": os.environ.get("SCRAPER_API_URL"),
+    }
+
+
+ENV_CONFIG = load_env_config()
 
 # ---------------------------------------------------------------------------
 # Images
 # ---------------------------------------------------------------------------
-APP_NAME = get_app_name()
+APP_NAME = ENV_CONFIG["APP_NAME"]
+ACCESS_KEY = ENV_CONFIG["ACCESS_KEY"]
 api_image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install("fastapi[standard]", "pydantic", "httpx", "markdownify")
@@ -363,6 +370,28 @@ async def scrape_links_fetch(site_id: str, config: dict) -> dict:
 # FastAPI app
 # ---------------------------------------------------------------------------
 web_app = FastAPI(title="Content Scraper API")
+
+
+# --- Access Key Middleware -----------------------------------------
+if ACCESS_KEY:
+    from starlette.middleware.base import BaseHTTPMiddleware
+    from starlette.responses import JSONResponse
+
+    class AccessKeyMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request, call_next):
+            # Allow health check without auth
+            if request.url.path == "/health":
+                return await call_next(request)
+            # Check access key
+            provided_key = request.headers.get("X-Access-Key")
+            if provided_key != ACCESS_KEY:
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Invalid or missing X-Access-Key header"}
+                )
+            return await call_next(request)
+
+    web_app.add_middleware(AccessKeyMiddleware)
 
 
 # --- UI -----------------------------------------------------------
@@ -1327,8 +1356,7 @@ def refresh_cache():
 @modal.concurrent(max_inputs=100)
 @modal.asgi_app(requires_proxy_auth=IS_PROD)
 def pull():
-    # this function's url
     url = pull.get_web_url()
-    if os.environ.get("SCRAPER_API_URL") != url:
-        print(f"SCRAPER_API_URL is not set to the correct value: {url}")
+    if ENV_CONFIG["SCRAPER_API_URL"] and ENV_CONFIG["SCRAPER_API_URL"] != url:
+        print(f"Warning: SCRAPER_API_URL mismatch. Expected {url}, got {ENV_CONFIG['SCRAPER_API_URL']}")
     return web_app

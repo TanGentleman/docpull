@@ -7,7 +7,7 @@ Docpull uses a single Modal app with separated concerns: a lightweight API serve
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    Modal App                                │
-│                 content-scraper-api                         │
+│              (configurable via --app-name)                  │
 │                                                             │
 │  ┌──────────────────────┐    ┌──────────────────────────┐  │
 │  │    api/server.py     │    │     api/worker.py        │  │
