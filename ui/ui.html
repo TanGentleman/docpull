@@ -245,6 +245,7 @@
       border: 1px solid var(--border);
       border-radius: 6px;
       color: var(--text-primary);
+      -webkit-text-security: disc;
     }
     .access-key-input:focus {
       outline: none;
@@ -287,7 +288,7 @@
     <h1>Docpull</h1>
     <div style="display: flex; align-items: center; gap: 16px;">
       <div class="access-key-container" id="accessKeyContainer">
-        <input type="password" class="access-key-input" id="accessKeyInput" placeholder="Access key">
+        <input type="text" class="access-key-input" id="accessKeyInput" placeholder="Access key" autocomplete="off">
         <span class="access-key-status" id="accessKeyStatus"></span>
       </div>
       <span class="site-count" id="siteCount">Loading...</span>
