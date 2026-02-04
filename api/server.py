@@ -24,7 +24,7 @@ from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
 import modal
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -372,26 +372,59 @@ async def scrape_links_fetch(site_id: str, config: dict) -> dict:
 web_app = FastAPI(title="Content Scraper API")
 
 
-# --- Access Key Middleware -----------------------------------------
-if ACCESS_KEY:
-    from starlette.middleware.base import BaseHTTPMiddleware
-    from starlette.responses import JSONResponse
+# --- Access Key Validation -----------------------------------------
+# Endpoints that always require the access key
+PROTECTED_ENDPOINTS = {
+    ("DELETE", "/cache"),      # DELETE /cache/{site_id}
+    ("DELETE", "/errors"),     # DELETE /errors and DELETE /errors/{site_id}
+    ("POST", "/sites"),        # POST /sites/{site_id}/index (check for /index suffix)
+    ("POST", "/jobs/bulk"),    # POST /jobs/bulk
+    ("POST", "/api/jobs/bulk"), # POST /api/jobs/bulk
+}
 
-    class AccessKeyMiddleware(BaseHTTPMiddleware):
-        async def dispatch(self, request, call_next):
-            # Allow health check without auth
-            if request.url.path == "/health":
-                return await call_next(request)
-            # Check access key
-            provided_key = request.headers.get("X-Access-Key")
-            if provided_key != ACCESS_KEY:
-                return JSONResponse(
-                    status_code=401,
-                    content={"detail": "Invalid or missing X-Access-Key header"}
-                )
-            return await call_next(request)
 
-    web_app.add_middleware(AccessKeyMiddleware)
+def requires_access_key(method: str, path: str, body: dict | None = None) -> bool:
+    """Check if the endpoint requires an access key."""
+    if not ACCESS_KEY:
+        return False
+
+    # DELETE /cache/{site_id}
+    if method == "DELETE" and path.startswith("/cache/"):
+        return True
+
+    # DELETE /errors and DELETE /errors/{site_id}
+    if method == "DELETE" and (path == "/errors" or path.startswith("/errors/")):
+        return True
+
+    # POST /sites/{site_id}/index
+    if method == "POST" and path.startswith("/sites/") and path.endswith("/index"):
+        return True
+
+    # POST /jobs/bulk or /api/jobs/bulk
+    if method == "POST" and (path == "/jobs/bulk" or path == "/api/jobs/bulk"):
+        return True
+
+    # POST /export/zip or /api/export - requires key when cached_only=false
+    if method == "POST" and (path == "/export/zip" or path == "/api/export"):
+        if body and body.get("cached_only") is False:
+            return True
+
+    return False
+
+
+def check_access_key(request) -> bool:
+    """Check if request has valid access key."""
+    if not ACCESS_KEY:
+        return True
+    # Check header first, then query param
+    provided_key = request.headers.get("X-Access-Key") or request.query_params.get("access_key")
+    return provided_key == ACCESS_KEY
+
+
+def require_access_key(request: Request):
+    """FastAPI dependency to require access key."""
+    if ACCESS_KEY and not check_access_key(request):
+        raise HTTPException(status_code=401, detail="Invalid or missing access key")
 
 
 # --- UI -----------------------------------------------------------
@@ -404,6 +437,15 @@ async def serve_ui():
 @web_app.get("/health")
 async def health():
     return {"status": "healthy"}
+
+
+@web_app.get("/api/validate-key")
+async def validate_access_key(request: Request):
+    """Validate the provided access key."""
+    if not ACCESS_KEY:
+        return {"valid": True, "required": False}
+    valid = check_access_key(request)
+    return {"valid": valid, "required": True}
 
 
 # --- Sites management ----------------------------------------------
@@ -644,7 +686,7 @@ async def cache_stats():
 
 
 @web_app.delete("/cache/{site_id}")
-async def clear_cache(site_id: str):
+async def clear_cache(site_id: str, _: None = Depends(require_access_key)):
     to_delete = [k for k in cache.keys() if k.startswith(f"{site_id}:")]
     for k in to_delete:
         cache.pop(k, None)
@@ -672,14 +714,14 @@ async def get_errors():
 
 
 @web_app.delete("/errors")
-async def clear_all_errors():
+async def clear_all_errors(_: None = Depends(require_access_key)):
     count = len(list(error_tracker.keys()))
     error_tracker.clear()
     return {"cleared": count}
 
 
 @web_app.delete("/errors/{site_id}")
-async def clear_site_errors(site_id: str):
+async def clear_site_errors(site_id: str, _: None = Depends(require_access_key)):
     to_delete = [k for k in error_tracker.keys() if k.startswith(f"{site_id}:")]
     for k in to_delete:
         error_tracker.pop(k, None)
@@ -694,6 +736,7 @@ async def index_site(
     site_id: str,
     max_age: int = Query(default=DEFAULT_MAX_AGE),
     batch_size: int = Query(default=25),
+    _: None = Depends(require_access_key),
 ):
     sites_config = load_sites_config()
     config = sites_config.get(site_id)
@@ -1012,7 +1055,10 @@ async def _build_export_zip(request: ExportRequest) -> tuple[bytes, dict]:
 
 
 @web_app.post("/export/zip")
-async def export_urls_as_zip(request: ExportRequest):
+async def export_urls_as_zip(req: Request, request: ExportRequest):
+    # Require access key when scraping (cached_only=false)
+    if not request.cached_only:
+        require_access_key(req)
     zip_bytes, stats = await _build_export_zip(request)
     return StreamingResponse(
         io.BytesIO(zip_bytes),
@@ -1032,8 +1078,8 @@ async def export_urls_as_zip(request: ExportRequest):
 # --- Bulk jobs -----------------------------------------------------
 
 
-@web_app.post("/jobs/bulk")
-async def submit_bulk_job(request: BulkScrapeRequest):
+async def _submit_bulk_job_impl(request: BulkScrapeRequest):
+    """Shared implementation for bulk job submission."""
     if not request.urls:
         raise HTTPException(400, "No URLs provided")
 
@@ -1062,6 +1108,11 @@ async def submit_bulk_job(request: BulkScrapeRequest):
 
     print(f"[submit_bulk_job] job_id={job_id} batches={len(batches)} sites={list(grouped['by_site'].keys())}")
     return {"job_id": job_id, "status": "in_progress", "batches": len(batches), "input": job["input"]}
+
+
+@web_app.post("/jobs/bulk")
+async def submit_bulk_job(request: BulkScrapeRequest, _: None = Depends(require_access_key)):
+    return await _submit_bulk_job_impl(request)
 
 
 @web_app.get("/jobs/{job_id}")
@@ -1137,8 +1188,10 @@ async def api_discover_get(url: str):
 
 
 @web_app.post("/api/jobs/bulk")
-async def api_submit_bulk(request: BulkScrapeRequest):
-    return await submit_bulk_job(request)
+async def api_submit_bulk(req: Request, request: BulkScrapeRequest):
+    # Require access key for bulk jobs
+    require_access_key(req)
+    return await _submit_bulk_job_impl(request)
 
 
 @web_app.get("/api/jobs/{job_id}")
@@ -1312,8 +1365,12 @@ class _ExportPostBody(BaseModel):
 
 
 @web_app.post("/api/export")
-async def api_export(req: _ExportPostBody):
+async def api_export(http_req: Request, req: _ExportPostBody):
     import base64
+
+    # Require access key when scraping (cached_only=false)
+    if not req.cached_only:
+        require_access_key(http_req)
 
     export_req = ExportRequest(urls=req.urls, cached_only=req.cached_only, include_manifest=True)
     zip_bytes, stats = await _build_export_zip(export_req)
