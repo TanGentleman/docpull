@@ -4,6 +4,7 @@
 Usage: python deploy.py [--open-browser] [--json] [--skip-install]
 """
 
+import os
 import argparse
 import json
 import re
@@ -12,8 +13,30 @@ import sys
 import webbrowser
 from pathlib import Path
 
+
+def get_app_name() -> str:
+    """Get APP_NAME from .env file or return default.
+
+    Returns:
+        str: The app name (alphanumeric only), defaults to "doc"
+    """
+    env_path = Path(__file__).parent / ".env"
+    app_name = os.environ.get("APP_NAME", "doc")
+
+    if env_path.exists():
+        for line in env_path.read_text().splitlines():
+            line = line.strip()
+            if line.startswith("APP_NAME="):
+                app_name = line.split("=", 1)[1].strip().strip('"').strip("'")
+                break
+
+    # Sanitize: Modal app names must be alphanumeric (with hyphens/underscores)
+    app_name = re.sub(r'[^a-zA-Z0-9-_]', '', app_name)
+    return app_name or "doc"
+
+
 # App name for Modal deployment (must match teardown.py)
-API_APP_NAME = "content-scraper-api"
+APP_NAME = get_app_name()
 
 # Delimiters for managed zshrc section
 ALIAS_START = "# >>> docpull alias >>>"
@@ -151,7 +174,7 @@ def get_existing_apps():
             app["Description"]: app["App ID"]
             for app in apps
             if app["State"] == "deployed"
-            and app["Description"] == API_APP_NAME
+            and app["Description"] == APP_NAME
         }
     except (json.JSONDecodeError, KeyError, FileNotFoundError):
         return {}
@@ -172,8 +195,8 @@ def deploy_api():
 
     # Check for existing deployment
     existing_apps = get_existing_apps()
-    if API_APP_NAME in existing_apps:
-        print(f"⚠️  Note: Redeploying existing app (ID: {existing_apps[API_APP_NAME]})")
+    if APP_NAME in existing_apps:
+        print(f"⚠️  Note: Redeploying existing app (ID: {existing_apps[APP_NAME]})")
 
     modal_cmd = get_modal_command()
     result = subprocess.run(
@@ -188,8 +211,8 @@ def deploy_api():
         sys.exit(1)
 
     # Extract API URL from deployment output
-    # Example: https://<username>--content-scraper-api-fastapi-app.modal.run
-    url_pattern = rf'https://[^\s]+--{API_APP_NAME}[^\s]+\.modal\.run'
+    # Example: https://<workspace>--doc-pull.modal.run (APP_NAME=doc, function=pull)
+    url_pattern = rf'https://[^\s]+--{APP_NAME}-pull\.modal\.run'
     match = re.search(url_pattern, result.stdout)
 
     if not match:
