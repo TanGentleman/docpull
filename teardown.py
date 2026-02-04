@@ -8,8 +8,29 @@ import subprocess
 import sys
 from pathlib import Path
 
-# App names deployed by deploy.py
-DOCPULL_APP_NAMES = {"content-scraper-api", "docpull"}
+
+def get_app_name_from_env() -> str | None:
+    """Get APP_NAME from .env file if it exists."""
+    env_path = Path(__file__).parent / ".env"
+    if not env_path.exists():
+        return None
+
+    for line in env_path.read_text().splitlines():
+        line = line.strip()
+        if line.startswith("APP_NAME="):
+            app_name = line.split("=", 1)[1].strip().strip('"').strip("'")
+            # Sanitize: Modal app names must be alphanumeric (with hyphens/underscores)
+            app_name = re.sub(r'[^a-zA-Z0-9-_]', '', app_name)
+            return app_name or None
+    return None
+
+
+# Legacy app names to stop during teardown
+LEGACY_APP_NAMES = {"content-scraper-api", "docpull", "doc"}
+
+# Add current app name from .env if different from legacy names
+_current_app = get_app_name_from_env()
+DOCPULL_APP_NAMES = LEGACY_APP_NAMES | ({_current_app} if _current_app else set())
 
 # Valid states for apps we can stop
 RUNNING_STATES = {"deployed", "ephemeral"}

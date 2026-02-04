@@ -13,9 +13,17 @@ uv sync
 # Authenticate with Modal (one-time)
 modal token new
 
-# Deploy to Modal (will prompt to set up global 'docpull' command)
-python deploy.py
+# Deploy to Modal
+python deploy.py                              # Default app name: doc
+python deploy.py --app-name myapp             # Custom app name
+python deploy.py --access-key secret123       # Require X-Access-Key header for API access
 ```
+
+Deploy options:
+- `--app-name NAME` - Set Modal app name (default: `doc`). Affects deployed URL.
+- `--access-key KEY` - Enable API authentication. Requests must include `X-Access-Key: KEY` header.
+- `--open-browser` - Open the UI in browser after deployment.
+- `--no-alias` - Skip adding global `docpull` command to ~/.zshrc.
 
 ## Usage
 

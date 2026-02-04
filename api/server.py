@@ -13,6 +13,7 @@
 #
 # Browser work is dispatched to PlaywrightWorker (api/worker.py).
 
+import os
 import asyncio
 import io
 import json
@@ -38,15 +39,43 @@ from api.bulk import (
 )
 from api.urls import clean_url, is_asset_url, normalize_page_path, normalize_path, normalize_url
 
+def load_env_config() -> dict[str, str]:
+    """Load configuration from .env file.
+
+    Returns dict with APP_NAME, ACCESS_KEY (if set), and SCRAPER_API_URL (if set).
+    """
+    from dotenv import load_dotenv
+
+    # Try local first (dev), then remote (deployed)
+    for env_path in [Path(__file__).parent.parent / ".env", Path("/root/.env")]:
+        if env_path.exists():
+            load_dotenv(env_path)
+            break
+
+    app_name = os.environ.get("APP_NAME", "doc")
+    app_name = re.sub(r'[^a-zA-Z0-9-_]', '', app_name) or "doc"
+
+    return {
+        "APP_NAME": app_name,
+        "ACCESS_KEY": os.environ.get("ACCESS_KEY"),
+        "SCRAPER_API_URL": os.environ.get("SCRAPER_API_URL"),
+    }
+
+
+ENV_CONFIG = load_env_config()
+
 # ---------------------------------------------------------------------------
 # Images
 # ---------------------------------------------------------------------------
+APP_NAME = ENV_CONFIG["APP_NAME"]
+ACCESS_KEY = ENV_CONFIG["ACCESS_KEY"]
 api_image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install("fastapi[standard]", "pydantic", "httpx", "markdownify")
     .add_local_dir("api", "/root/api")
-    .add_local_file("config/sites.json", "/root/config/sites.json")
+    .add_local_file("config/sites.json", "/root/sites.json")
     .add_local_file("ui/ui.html", "/root/ui.html")
+    .add_local_file(".env", "/root/.env")
 )
 
 minimal_image = modal.Image.debian_slim(python_version="3.11")
@@ -54,7 +83,7 @@ minimal_image = modal.Image.debian_slim(python_version="3.11")
 # ---------------------------------------------------------------------------
 # App + PlaywrightWorker registration
 # ---------------------------------------------------------------------------
-app = modal.App("content-scraper-api", image=api_image)
+app = modal.App(APP_NAME, image=api_image)
 
 # Import worker pieces and register the class with our app.
 # PlaywrightWorkerBase uses @modal.enter/@modal.exit/@modal.method but has no
@@ -150,9 +179,7 @@ def set_cached(cache_key: str, data: dict) -> None:
 
 
 def load_sites_from_file() -> dict[str, dict]:
-    config_path = Path("/root/config/sites.json")
-    if not config_path.exists():
-        config_path = Path(__file__).parent.parent / "config" / "sites.json"
+    config_path = Path("/root/sites.json")
     with open(config_path) as f:
         return json.load(f)["sites"]
 
@@ -343,6 +370,28 @@ async def scrape_links_fetch(site_id: str, config: dict) -> dict:
 # FastAPI app
 # ---------------------------------------------------------------------------
 web_app = FastAPI(title="Content Scraper API")
+
+
+# --- Access Key Middleware -----------------------------------------
+if ACCESS_KEY:
+    from starlette.middleware.base import BaseHTTPMiddleware
+    from starlette.responses import JSONResponse
+
+    class AccessKeyMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request, call_next):
+            # Allow health check without auth
+            if request.url.path == "/health":
+                return await call_next(request)
+            # Check access key
+            provided_key = request.headers.get("X-Access-Key")
+            if provided_key != ACCESS_KEY:
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Invalid or missing X-Access-Key header"}
+                )
+            return await call_next(request)
+
+    web_app.add_middleware(AccessKeyMiddleware)
 
 
 # --- UI -----------------------------------------------------------
@@ -1306,5 +1355,8 @@ def refresh_cache():
 @app.function()
 @modal.concurrent(max_inputs=100)
 @modal.asgi_app(requires_proxy_auth=IS_PROD)
-def fastapi_app():
+def pull():
+    url = pull.get_web_url()
+    if ENV_CONFIG["SCRAPER_API_URL"] and ENV_CONFIG["SCRAPER_API_URL"] != url:
+        print(f"Warning: SCRAPER_API_URL mismatch. Expected {url}, got {ENV_CONFIG['SCRAPER_API_URL']}")
     return web_app
