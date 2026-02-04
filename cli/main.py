@@ -26,11 +26,30 @@ cache_app = typer.Typer(help="Cache management commands.")
 app.add_typer(cache_app, name="cache")
 
 
+def handle_http_error(e: httpx.HTTPStatusError) -> None:
+    """Handle HTTP errors with user-friendly messages."""
+    if e.response.status_code == 401:
+        print("Error: Wrong access key", file=sys.stderr)
+    elif e.response.status_code == 403:
+        print("Error: Access denied - check your access key", file=sys.stderr)
+    else:
+        print(f"Error: HTTP {e.response.status_code}", file=sys.stderr)
+        try:
+            error_detail = e.response.json().get("detail", str(e))
+            print(f"Details: {error_detail}", file=sys.stderr)
+        except Exception:
+            print(f"Details: {e}", file=sys.stderr)
+    raise typer.Exit(1)
+
+
 @app.command()
 def sites():
     """List all available site IDs."""
-    resp = httpx.get(f"{API_BASE}/sites", headers=get_auth_headers(), timeout=30.0)
-    resp.raise_for_status()
+    try:
+        resp = httpx.get(f"{API_BASE}/sites", headers=get_auth_headers(), timeout=30.0)
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        handle_http_error(e)
     data = resp.json()
     for site in data["sites"]:
         print(site["id"])
@@ -70,13 +89,7 @@ def discover(
         resp.raise_for_status()
         data = resp.json()
     except httpx.HTTPStatusError as e:
-        print(f"Error: HTTP {e.response.status_code}", file=sys.stderr)
-        try:
-            error_detail = e.response.json().get("detail", str(e))
-            print(f"Details: {error_detail}", file=sys.stderr)
-        except Exception:
-            print(f"Details: {e}", file=sys.stderr)
-        raise typer.Exit(1)
+        handle_http_error(e)
     except httpx.TimeoutException:
         print("Error: Request timed out (60s)", file=sys.stderr)
         print("The page may be slow to load or unresponsive", file=sys.stderr)
@@ -254,13 +267,16 @@ def links(
 ):
     """Get all documentation links for a site."""
     params = {"max_age": 0} if force else {}
-    resp = httpx.get(
-        f"{API_BASE}/sites/{site_id}/links",
-        params=params,
-        headers=get_auth_headers(),
-        timeout=120.0,
-    )
-    resp.raise_for_status()
+    try:
+        resp = httpx.get(
+            f"{API_BASE}/sites/{site_id}/links",
+            params=params,
+            headers=get_auth_headers(),
+            timeout=120.0,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        handle_http_error(e)
     data = resp.json()
     for link in data["links"]:
         print(link)
@@ -286,13 +302,16 @@ def content(
     if force:
         params["max_age"] = 0  # Force fresh scrape
 
-    resp = httpx.get(
-        f"{API_BASE}/sites/{site_id}/content",
-        params=params,
-        headers=get_auth_headers(),
-        timeout=120.0,
-    )
-    resp.raise_for_status()
+    try:
+        resp = httpx.get(
+            f"{API_BASE}/sites/{site_id}/content",
+            params=params,
+            headers=get_auth_headers(),
+            timeout=120.0,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        handle_http_error(e)
     data = resp.json()
     page_content = data["content"]
 
@@ -318,13 +337,16 @@ def index(
     print(f"Indexing {site_id}...", file=sys.stderr)
 
     # Use the parallel bulk indexing API endpoint
-    resp = httpx.post(
-        f"{API_BASE}/sites/{site_id}/index",
-        params={"max_concurrent": max_concurrent},
-        headers=get_auth_headers(),
-        timeout=120.0,
-    )
-    resp.raise_for_status()
+    try:
+        resp = httpx.post(
+            f"{API_BASE}/sites/{site_id}/index",
+            params={"max_concurrent": max_concurrent},
+            headers=get_auth_headers(),
+            timeout=120.0,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        handle_http_error(e)
     data = resp.json()
 
     cached = data.get("cached", 0)
@@ -354,12 +376,15 @@ def download(
     """Download all documentation for a site as a ZIP file."""
     print(f"Downloading {site_id} docs...", file=sys.stderr)
 
-    resp = httpx.get(
-        f"{API_BASE}/sites/{site_id}/download",
-        headers=get_auth_headers(),
-        timeout=120.0,
-    )
-    resp.raise_for_status()
+    try:
+        resp = httpx.get(
+            f"{API_BASE}/sites/{site_id}/download",
+            headers=get_auth_headers(),
+            timeout=120.0,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        handle_http_error(e)
 
     # Save ZIP file
     out_path = os.path.join(output_dir, f"{site_id}_docs.zip")
@@ -411,14 +436,17 @@ def export_cmd(
         "include_manifest": True,
     }
 
-    resp = httpx.post(
-        f"{API_BASE}/export/zip",
-        json=payload,
-        headers=get_auth_headers(),
-        timeout=600.0,  # 10 min for large exports
-        follow_redirects=True,
-    )
-    resp.raise_for_status()
+    try:
+        resp = httpx.post(
+            f"{API_BASE}/export/zip",
+            json=payload,
+            headers=get_auth_headers(),
+            timeout=600.0,  # 10 min for large exports
+            follow_redirects=True,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        handle_http_error(e)
 
     # Save ZIP file
     with open(output, "wb") as f:
@@ -493,13 +521,16 @@ def bulk(
 
     print(f"Submitting bulk job with {len(urls)} URLs...", file=sys.stderr)
 
-    resp = httpx.post(
-        f"{API_BASE}/jobs/bulk",
-        json={"urls": urls},
-        headers=get_auth_headers(),
-        timeout=60.0,
-    )
-    resp.raise_for_status()
+    try:
+        resp = httpx.post(
+            f"{API_BASE}/jobs/bulk",
+            json={"urls": urls},
+            headers=get_auth_headers(),
+            timeout=60.0,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        handle_http_error(e)
     data = resp.json()
 
     job_id = data.get("job_id")
@@ -559,13 +590,19 @@ def job(
                 print(f"  {err.get('path', '?')}: {err.get('error', '?')[:60]}")
 
     if not watch:
-        data = fetch_status()
+        try:
+            data = fetch_status()
+        except httpx.HTTPStatusError as e:
+            handle_http_error(e)
         print_status(data)
         return
 
     # Watch mode
     while True:
-        data = fetch_status()
+        try:
+            data = fetch_status()
+        except httpx.HTTPStatusError as e:
+            handle_http_error(e)
         # Clear screen and print
         print("\033[2J\033[H", end="")  # Clear screen
         print_status(data)
@@ -580,13 +617,16 @@ def jobs(
     limit: Annotated[int, typer.Option("--limit", "-n", help="Max jobs to show")] = 20,
 ):
     """List recent bulk scrape jobs."""
-    resp = httpx.get(
-        f"{API_BASE}/jobs",
-        params={"limit": limit},
-        headers=get_auth_headers(),
-        timeout=30.0,
-    )
-    resp.raise_for_status()
+    try:
+        resp = httpx.get(
+            f"{API_BASE}/jobs",
+            params={"limit": limit},
+            headers=get_auth_headers(),
+            timeout=30.0,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        handle_http_error(e)
     data = resp.json()
 
     jobs_list = data.get("jobs", [])
@@ -610,8 +650,11 @@ def jobs(
 @cache_app.command(name="stats")
 def cache_stats():
     """Show cache statistics."""
-    resp = httpx.get(f"{API_BASE}/cache/stats", headers=get_auth_headers(), timeout=30.0)
-    resp.raise_for_status()
+    try:
+        resp = httpx.get(f"{API_BASE}/cache/stats", headers=get_auth_headers(), timeout=30.0)
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        handle_http_error(e)
     data = resp.json()
     print(f"Total cache entries: {data['total_entries']}")
     print("\nBy type:")
@@ -630,10 +673,13 @@ def cache_keys(
     params = {"content_only": "true"}
     if site_id:
         params["site_id"] = site_id
-    resp = httpx.get(
-        f"{API_BASE}/cache/keys", params=params, headers=get_auth_headers(), timeout=60.0
-    )
-    resp.raise_for_status()
+    try:
+        resp = httpx.get(
+            f"{API_BASE}/cache/keys", params=params, headers=get_auth_headers(), timeout=60.0
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        handle_http_error(e)
     data = resp.json()
     for entry in data["keys"]:
         print(entry["url"])
@@ -645,8 +691,11 @@ def cache_clear(
     site_id: Annotated[str, typer.Argument(help="Site ID to clear cache for")],
 ):
     """Clear cache for a site."""
-    resp = httpx.delete(f"{API_BASE}/cache/{site_id}", headers=get_auth_headers(), timeout=30.0)
-    resp.raise_for_status()
+    try:
+        resp = httpx.delete(f"{API_BASE}/cache/{site_id}", headers=get_auth_headers(), timeout=30.0)
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        handle_http_error(e)
     print(f"Cleared {resp.json()['deleted']} cache entries for {site_id}")
 
 
