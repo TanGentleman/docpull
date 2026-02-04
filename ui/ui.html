@@ -231,6 +231,42 @@
     }
     .empty-state p { margin: 8px 0; }
 
+    /* Access Key */
+    .access-key-container {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .access-key-input {
+      width: 180px;
+      padding: 6px 10px;
+      font-size: 13px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-primary);
+    }
+    .access-key-input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    .access-key-status {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+    .access-key-status.valid {
+      color: var(--success);
+    }
+    .access-key-status.invalid {
+      color: var(--error);
+    }
+    .access-key-status .check {
+      font-size: 16px;
+    }
+
     /* JSON Error */
     .json-error {
       color: var(--error);
@@ -249,7 +285,13 @@
 <body>
   <header>
     <h1>Docpull</h1>
-    <span class="site-count" id="siteCount">Loading...</span>
+    <div style="display: flex; align-items: center; gap: 16px;">
+      <div class="access-key-container" id="accessKeyContainer">
+        <input type="password" class="access-key-input" id="accessKeyInput" placeholder="Access key">
+        <span class="access-key-status" id="accessKeyStatus"></span>
+      </div>
+      <span class="site-count" id="siteCount">Loading...</span>
+    </div>
   </header>
 
   <!-- Your Sites -->
@@ -371,6 +413,86 @@
 
     let sites = [];
     let selectedSiteId = null;
+    let accessKeyValid = false;
+    let accessKeyRequired = false;
+
+    // ===== Access Key Functions =====
+    function getAccessKey() {
+      return localStorage.getItem('docpull_access_key') || '';
+    }
+
+    function setAccessKey(key) {
+      if (key) {
+        localStorage.setItem('docpull_access_key', key);
+      } else {
+        localStorage.removeItem('docpull_access_key');
+      }
+    }
+
+    function withAccessKey(headers = {}) {
+      const key = getAccessKey();
+      if (key) {
+        return { ...headers, 'X-Access-Key': key };
+      }
+      return headers;
+    }
+
+    function updateAccessKeyStatus(valid, required) {
+      const statusEl = document.getElementById('accessKeyStatus');
+      accessKeyValid = valid;
+      accessKeyRequired = required;
+
+      if (!required) {
+        statusEl.innerHTML = '<span style="color: var(--text-secondary)">Not required</span>';
+        statusEl.className = 'access-key-status';
+      } else if (valid) {
+        statusEl.innerHTML = '<span class="check">&#10003;</span> Valid';
+        statusEl.className = 'access-key-status valid';
+      } else {
+        const key = getAccessKey();
+        if (key) {
+          statusEl.innerHTML = '<span class="check">&#10007;</span> Invalid';
+          statusEl.className = 'access-key-status invalid';
+        } else {
+          statusEl.innerHTML = '<span style="color: var(--text-secondary)">Required</span>';
+          statusEl.className = 'access-key-status';
+        }
+      }
+    }
+
+    async function validateAccessKey() {
+      const key = getAccessKey();
+      try {
+        const headers = key ? { 'X-Access-Key': key } : {};
+        const res = await fetch(`${API}/validate-key`, { headers });
+        const data = await res.json();
+        updateAccessKeyStatus(data.valid, data.required);
+      } catch (err) {
+        console.error('Failed to validate access key:', err);
+        updateAccessKeyStatus(false, true);
+      }
+    }
+
+    // Initialize access key input from localStorage
+    function initAccessKey() {
+      const input = document.getElementById('accessKeyInput');
+      const savedKey = getAccessKey();
+      if (savedKey) {
+        input.value = savedKey;
+      }
+
+      // Debounced validation on input
+      let debounceTimer;
+      input.addEventListener('input', () => {
+        const key = input.value.trim();
+        setAccessKey(key);
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(validateAccessKey, 500);
+      });
+
+      // Validate on load
+      validateAccessKey();
+    }
 
     // ===== Utility Functions =====
     function showOutput(el, text, success = true) {
@@ -688,13 +810,25 @@
       const btn = document.getElementById('exportBtn');
       const output = document.getElementById('exportOutput');
 
+      // When scraping (not cached_only), require valid access key
+      if (scrape && accessKeyRequired && !accessKeyValid) {
+        alert('Valid access key required for scraping. Please enter your access key.');
+        document.getElementById('accessKeyInput').focus();
+        return;
+      }
+
       setLoading(btn, true);
       hideOutput(output);
 
       try {
+        // Include access key header when scraping
+        const headers = scrape
+          ? withAccessKey({ 'Content-Type': 'application/json' })
+          : { 'Content-Type': 'application/json' };
+
         const res = await fetch(`${API}/export`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({ urls, cached_only: !scrape })
         });
         const data = await res.json();
@@ -749,6 +883,7 @@
 
     // ===== Init =====
     restoreCardStates();
+    initAccessKey();
     loadSites();
   </script>
 </body>
