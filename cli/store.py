@@ -152,6 +152,7 @@ def download_collection(
         f"{api_url}/sites/{collection}/download",
         headers=get_auth_headers(),
         timeout=timeout,
+        follow_redirects=True,
     )
     resp.raise_for_status()
 

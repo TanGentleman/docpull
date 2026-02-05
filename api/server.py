@@ -300,6 +300,8 @@ def extract_links_from_html(html: str, base_url: str, pattern: str) -> list[str]
             link = f"{parsed.scheme}://{parsed.netloc}{link}"
         elif not link.startswith("http"):
             link = urljoin(base_url, link)
+        if is_asset_url(link):
+            continue
         if pattern and pattern not in link:
             if link != base_url and link != f"{base_url}/":
                 continue
@@ -836,6 +838,8 @@ async def download_site(
 
     paths: list[str] = []
     for link in links_response.links:
+        if is_asset_url(link):
+            continue
         if link.startswith(base_url):
             paths.append(link[len(base_url):])
         else:
