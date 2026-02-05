@@ -458,9 +458,8 @@ async def get_sites(
     sites_config = load_sites_config()
     if include_test_paths:
         sites = [
-            {"id": sid, "testPath": cfg.testPath}
+            {"id": sid, "testPath": cfg.testPath or ""}
             for sid, cfg in sites_config.items()
-            if cfg.testPath
         ]
     else:
         sites = [{"id": sid} for sid in sites_config]
