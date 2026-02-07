@@ -23,8 +23,8 @@
 # python sandbox/opencode.py --timeout 6 --include-repo
 # ```
 
-import os
 import secrets
+import sys
 import time
 from pathlib import Path
 from typing import Optional
@@ -33,6 +33,14 @@ try:
     import modal
 except ImportError:
     modal = None
+
+# Ensure project root is on path for standalone execution
+_project_root = str(Path(__file__).resolve().parent.parent)
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
+from sandbox.image import build_agent_image, add_local_repo
+from sandbox.sandbox import create_sandbox
 
 # ## Constants
 
@@ -47,106 +55,6 @@ here = Path(__file__).resolve()
 repo_root = here.parent.parent
 
 
-# ## Build the OpenCode Image
-
-def get_opencode_image():
-    """Create a Modal Image with OpenCode and useful tools installed.
-    
-    Uses the official OpenCode installer for reliable installation.
-    Includes common dev tools for documentation work.
-    """
-    if modal is None:
-        raise ImportError("Modal is required. Install with: pip install modal")
-
-    image = (
-        modal.Image.debian_slim(python_version="3.12")
-        .apt_install("curl", "git", "vim", "tree")
-        # Install OpenCode via official script
-        .run_commands("curl -fsSL https://opencode.ai/install | bash")
-        .env({"PATH": "/root/.opencode/bin:${PATH}"})
-    )
-
-    return image
-
-
-# ## Add OpenCode Configuration
-
-def add_opencode_config(image):
-    """Add local OpenCode configuration if it exists.
-    
-    This brings your personal OpenCode settings (model preferences,
-    API keys for other services, etc.) into the sandbox.
-    """
-    config_path = Path.home() / ".config" / "opencode" / "opencode.json"
-    if config_path.exists():
-        print(f"📦 Including OpenCode config from {config_path}")
-        image = image.add_local_file(config_path, "/root/.config/opencode/opencode.json")
-    return image
-
-
-# ## Add Modal Credentials
-
-def add_modal_credentials(image):
-    """Add Modal credentials so the agent can deploy and test Modal code.
-    
-    Checks for ~/.modal.toml first, falls back to environment variables.
-    """
-    modal_path = Path.home() / ".modal.toml"
-    
-    if modal_path.exists():
-        print(f"🔑 Including Modal credentials from {modal_path}")
-        image = image.add_local_file(modal_path, "/root/.modal.toml")
-    else:
-        # Try environment variables
-        token_id = os.environ.get("MODAL_TOKEN_ID")
-        token_secret = os.environ.get("MODAL_TOKEN_SECRET")
-        if token_id and token_secret:
-            print("🔑 Including Modal credentials from environment")
-            image = image.env({
-                "MODAL_TOKEN_ID": token_id,
-                "MODAL_TOKEN_SECRET": token_secret,
-            })
-    
-    return image
-
-
-# ## Add Local Repository (Optional)
-
-def add_local_repo(
-    image,
-    local_path: Optional[Path] = None,
-    remote_path: Optional[str] = None,
-) -> tuple:
-    """Mount a local directory into the sandbox.
-    
-    Args:
-        image: The Modal image to add to
-        local_path: Local directory to mount (defaults to docpull repo)
-        remote_path: Where to mount in the container (defaults to /root/{dirname})
-    
-    Returns:
-        Tuple of (image, workdir) where workdir is the mounted path
-    """
-    if local_path is None:
-        local_path = repo_root
-    
-    if remote_path is None:
-        remote_path = f"/root/{local_path.name}"
-    
-    print(f"📁 Mounting {local_path} → {remote_path}")
-    image = image.add_local_dir(local_path, remote_path, ignore=[
-        ".git",
-        "__pycache__",
-        "*.pyc",
-        ".env",
-        ".venv",
-        "node_modules",
-        "*.egg-info",
-    ])
-    
-    return image, remote_path
-
-
 # ## Create the Sandbox
 
 def create_opencode_sandbox(
@@ -159,7 +67,7 @@ def create_opencode_sandbox(
     verbose: bool = True,
 ) -> dict:
     """Create a Modal Sandbox running OpenCode with documentation access.
-    
+
     Args:
         include_config: Include local ~/.config/opencode/opencode.json
         include_modal_creds: Include Modal credentials for the agent
@@ -168,7 +76,7 @@ def create_opencode_sandbox(
         timeout_hours: How long the sandbox can run (max 24)
         password: Server password (auto-generated if not provided)
         verbose: Print access instructions
-    
+
     Returns:
         dict with sandbox_id, web_url, tui_command, password, etc.
     """
@@ -182,19 +90,16 @@ def create_opencode_sandbox(
     # Create ephemeral secret for the password
     password_secret = modal.Secret.from_dict({"OPENCODE_SERVER_PASSWORD": password})
 
-    # Build the image progressively
+    # Build the image
     print("🔨 Building OpenCode image...")
-    image = get_opencode_image()
-    
-    if include_config:
-        image = add_opencode_config(image)
-    
-    if include_modal_creds:
-        image = add_modal_credentials(image)
-    
+    image = build_agent_image(
+        include_config=include_config,
+        include_modal_creds=include_modal_creds,
+    )
+
     # Determine workdir
     workdir = "/docs"
-    
+
     if include_repo:
         image, workdir = add_local_repo(image)
 
@@ -205,34 +110,29 @@ def create_opencode_sandbox(
         volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
         volumes["/docs"] = volume
 
-    # Look up or create the app
-    app = modal.App.lookup(APP_NAME, create_if_missing=True)
-
     # Create the sandbox
     print("🏖️  Creating sandbox...")
     timeout = int(timeout_hours * HOURS)
 
-    # idle_timeout auto-terminates the sandbox after 30 min of no
-    # open connections or running commands — saves cost if you forget.
+    # idle_timeout auto-terminates after 30 min of no connections — saves cost
     idle_timeout = int(min(timeout, 30 * MINUTES))
 
-    with modal.enable_output():
-        sandbox = modal.Sandbox.create(
-            "opencode",
-            "serve",
-            "--hostname=0.0.0.0",
-            f"--port={OPENCODE_PORT}",
-            "--log-level=DEBUG",
-            "--print-logs",
-            image=image,
-            app=app,
-            secrets=[password_secret],
-            volumes=volumes,
-            workdir=workdir,
-            encrypted_ports=[OPENCODE_PORT],
-            timeout=timeout,
-            idle_timeout=idle_timeout,
-        )
+    sandbox = create_sandbox(
+        "opencode",
+        "serve",
+        "--hostname=0.0.0.0",
+        f"--port={OPENCODE_PORT}",
+        "--log-level=DEBUG",
+        "--print-logs",
+        image=image,
+        secrets=[password_secret],
+        volumes=volumes,
+        workdir=workdir,
+        encrypted_ports=[OPENCODE_PORT],
+        timeout=timeout,
+        idle_timeout=idle_timeout,
+        app_name=APP_NAME,
+    )
 
     # Wait for tunnel to be provisioned (may take a moment)
     tunnel = None
@@ -296,11 +196,11 @@ def upload_docs_to_volume(
     volume_name: str = VOLUME_NAME,
 ) -> int:
     """Upload local docs/ folder to the Modal volume.
-    
+
     Args:
         docs_path: Path to docs folder (defaults to repo_root/docs)
         volume_name: Name of the Modal volume
-    
+
     Returns:
         Number of files uploaded
     """
@@ -321,7 +221,7 @@ def upload_docs_to_volume(
 
     # batch_upload handles the remote write when the context manager exits.
     # volume.commit() is only valid inside a Modal container — not needed here.
-    with volume.batch_upload() as batch:
+    with volume.batch_upload(force=True) as batch:
         for file_path in docs_path.rglob("*"):
             if file_path.is_file() and not file_path.name.startswith("."):
                 relative = file_path.relative_to(docs_path)
@@ -339,10 +239,10 @@ def upload_docs_to_volume(
 
 def stop_sandbox(sandbox_id: str) -> bool:
     """Terminate a running sandbox.
-    
+
     Args:
         sandbox_id: The sandbox ID to terminate
-    
+
     Returns:
         True if terminated successfully
     """
@@ -363,10 +263,10 @@ def stop_sandbox(sandbox_id: str) -> bool:
 
 def get_sandbox_status(sandbox_id: str) -> Optional[dict]:
     """Get status of a running sandbox.
-    
+
     Args:
         sandbox_id: The sandbox ID to check
-    
+
     Returns:
         dict with status info, or None if not found
     """
@@ -389,7 +289,7 @@ def get_sandbox_status(sandbox_id: str) -> Optional[dict]:
 
 def list_sandboxes() -> list[dict]:
     """List all running OpenCode sandboxes.
-    
+
     Returns:
         List of sandbox info dicts
     """

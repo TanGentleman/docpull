@@ -150,25 +150,17 @@ def setup_cloud_chat(
 
     import secrets
 
-    collection_path = get_collection_path(collection)
+    # Upload collection to volume
+    from sandbox.docs import upload_collections, get_docs_volume
 
-    # Create or get volume
-    volume = modal.Volume.from_name(volume_name, create_if_missing=True)
-
-    # Upload docs to volume
     print(f"Uploading {collection} to Modal Volume...", file=sys.stderr)
+    upload_collections([collection], volume_name=volume_name)
+    volume = get_docs_volume(volume_name)
 
-    # batch_upload handles the remote write when the context manager exits
-    with volume.batch_upload() as batch:
-        for file_path in collection_path.rglob("*.md"):
-            relative = file_path.relative_to(collection_path)
-            remote_path = f"/docs/{collection}/{relative}"
-            batch.put_file(file_path, remote_path)
-
-    print(f"Uploaded to volume: {volume_name}", file=sys.stderr)
-
-    # Reuse the sandbox module's image builder and constants
-    from sandbox.opencode import get_opencode_image, APP_NAME, OPENCODE_PORT
+    # Build image and create sandbox via the refactored modules
+    from sandbox.image import build_agent_image
+    from sandbox.sandbox import create_sandbox
+    from sandbox.opencode import APP_NAME, OPENCODE_PORT
 
     # Generate password for OpenCode
     password = secrets.token_urlsafe(12)
@@ -177,23 +169,21 @@ def setup_cloud_chat(
     # Create sandbox with OpenCode
     print("Creating Modal Sandbox with OpenCode...", file=sys.stderr)
 
-    image = get_opencode_image()
-    app = modal.App.lookup(APP_NAME, create_if_missing=True)
+    image = build_agent_image()
 
-    with modal.enable_output():
-        sandbox = modal.Sandbox.create(
-            "opencode",
-            "serve",
-            "--hostname=0.0.0.0",
-            f"--port={OPENCODE_PORT}",
-            image=image,
-            app=app,
-            secrets=[password_secret],
-            volumes={"/docs": volume},
-            workdir=f"/docs/{collection}",
-            encrypted_ports=[OPENCODE_PORT],
-            timeout=3600,  # 1 hour
-        )
+    sandbox = create_sandbox(
+        "opencode",
+        "serve",
+        "--hostname=0.0.0.0",
+        f"--port={OPENCODE_PORT}",
+        image=image,
+        secrets=[password_secret],
+        volumes={"/docs": volume},
+        workdir=f"/docs/{collection}",
+        encrypted_ports=[OPENCODE_PORT],
+        timeout=3600,  # 1 hour
+        app_name=APP_NAME,
+    )
 
     # Get tunnel URL
     tunnel = sandbox.tunnels()[OPENCODE_PORT]
