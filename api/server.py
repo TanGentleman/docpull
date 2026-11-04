@@ -1064,7 +1064,7 @@ async def _submit_bulk_job_impl(request: BulkScrapeRequest):
         if cfg:
             worker.process_batch.spawn(
                 job_id, batch["site_id"], batch["paths"],
-                cfg.model_dump(), request.batch_size,
+                cfg.model_dump(), request.batch_size, request.max_age,
             )
 
     print(f"[submit_bulk_job] job_id={job_id} batches={len(batches)} sites={list(grouped['by_site'].keys())}")
