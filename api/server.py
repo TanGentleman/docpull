@@ -790,13 +790,25 @@ async def download_site(
     base_url = config.baseUrl
 
     paths: list[str] = []
+    zip_paths: dict[str, str] = {}
     for link in links_response.links:
+        if is_asset_url(link):
+            continue
         if link.startswith(base_url):
-            paths.append(link[len(base_url):])
+            p = link[len(base_url):]
         else:
             lp = urlparse(link)
-            if lp.netloc == urlparse(base_url).netloc:
-                paths.append(lp.path)
+            if lp.netloc != urlparse(base_url).netloc:
+                continue
+            p = lp.path
+        try:
+            zpath = zip_path_for(site_id, p).removeprefix("docs/")
+        except ValueError:
+            print(f"[download_site] Skipping unsafe path: {p}")
+            continue
+        if p not in zip_paths:
+            paths.append(p)
+            zip_paths[p] = zpath
 
     print(f"[download_site] {len(paths)} pages")
 
@@ -839,8 +851,7 @@ async def download_site(
             content = r["content"]
             if content.lstrip().startswith("<"):
                 content = html_to_markdown(content)
-            safe = r["path"].strip("/").replace("//", "/") or "index"
-            zf.writestr(f"{site_id}/{safe}.md", content)
+            zf.writestr(zip_paths[r["path"]], content)
             ok += 1
             if r.get("from_cache"):
                 cached_n += 1
