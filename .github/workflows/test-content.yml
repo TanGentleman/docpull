@@ -17,23 +17,10 @@ on:
           - prod
           - dev
       site:
-        description: 'Site to test'
+        description: "Site id from config/sites.json, or 'all'"
         required: true
         default: 'all'
-        type: choice
-        options:
-          - all
-          - modal
-          - convex
-          - datadog
-          - terraform-aws
-          - cursor
-          - claude-platform
-          - claude-code
-          - unsloth
-          - playwright
-          - whatnot
-          - corridor
+        type: string
 
 jobs:
   get-sites:
@@ -48,17 +35,20 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment || 'prod' }}
           MODAL_USERNAME: ${{ secrets.MODAL_USERNAME }}
+          APP_NAME: ${{ vars.APP_NAME || 'doc' }}
+          ACCESS_KEY: ${{ secrets.ACCESS_KEY }}
           MODAL_KEY: ${{ secrets.MODAL_KEY }}
           MODAL_SECRET: ${{ secrets.MODAL_SECRET }}
         run: |
           SUFFIX=""
           if [ "$ENVIRONMENT" = "dev" ]; then SUFFIX="-dev"; fi
-          API_BASE="https://${MODAL_USERNAME}--content-scraper-api-fastapi-app${SUFFIX}.modal.run"
+          API_BASE="https://${MODAL_USERNAME}--${APP_NAME}-pull${SUFFIX}.modal.run"
 
           echo "Checking API health at $API_BASE..."
-          RESPONSE=$(curl -sf "$API_BASE/" \
+          RESPONSE=$(curl -sf "$API_BASE/health" \
             -H "Modal-Key: ${MODAL_KEY}" \
-            -H "Modal-Secret: ${MODAL_SECRET}")
+            -H "Modal-Secret: ${MODAL_SECRET}" \
+            -H "X-Access-Key: ${ACCESS_KEY}")
 
           echo "$RESPONSE" | jq .
           echo "API is healthy"
@@ -69,9 +59,13 @@ jobs:
           SELECTED_SITE: ${{ inputs.site || 'all' }}
         run: |
           if [ "$SELECTED_SITE" = "all" ]; then
-            MATRIX=$(jq -c '{include: [.sites | to_entries[] | {id: .key, testPath: .value.testPath}]}' scraper/config/sites.json)
+            MATRIX=$(jq -c '{include: [.sites | to_entries[] | {id: .key, testPath: .value.testPath}]}' config/sites.json)
           else
-            MATRIX=$(jq -c --arg site "$SELECTED_SITE" '{include: [.sites | to_entries[] | select(.key == $site) | {id: .key, testPath: .value.testPath}]}' scraper/config/sites.json)
+            MATRIX=$(jq -c --arg site "$SELECTED_SITE" '{include: [.sites | to_entries[] | select(.key == $site) | {id: .key, testPath: .value.testPath}]}' config/sites.json)
+          fi
+          if [ "$(echo "$MATRIX" | jq '.include | length')" -eq 0 ]; then
+            echo "::error::Unknown site: $SELECTED_SITE"
+            exit 1
           fi
           echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
 
@@ -87,12 +81,14 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment || 'prod' }}
           MODAL_USERNAME: ${{ secrets.MODAL_USERNAME }}
+          APP_NAME: ${{ vars.APP_NAME || 'doc' }}
+          ACCESS_KEY: ${{ secrets.ACCESS_KEY }}
           MODAL_KEY: ${{ secrets.MODAL_KEY }}
           MODAL_SECRET: ${{ secrets.MODAL_SECRET }}
         run: |
           SUFFIX=""
           if [ "$ENVIRONMENT" = "dev" ]; then SUFFIX="-dev"; fi
-          API_BASE="https://${MODAL_USERNAME}--content-scraper-api-fastapi-app${SUFFIX}.modal.run"
+          API_BASE="https://${MODAL_USERNAME}--${APP_NAME}-pull${SUFFIX}.modal.run"
 
           # URL encode the path
           ENCODED_PATH=$(printf '%s' "${{ matrix.testPath }}" | jq -sRr @uri)
@@ -102,7 +98,8 @@ jobs:
 
           HTTP_CODE=$(curl -s -o /tmp/response.json -w "%{http_code}" "$URL" \
             -H "Modal-Key: ${MODAL_KEY}" \
-            -H "Modal-Secret: ${MODAL_SECRET}")
+            -H "Modal-Secret: ${MODAL_SECRET}" \
+            -H "X-Access-Key: ${ACCESS_KEY}")
 
           if [ "$HTTP_CODE" != "200" ]; then
             echo "::error::HTTP $HTTP_CODE for ${{ matrix.id }}"
