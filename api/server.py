@@ -48,9 +48,12 @@ def load_env_config() -> dict[str, str]:
 
     # Try local first (dev), then remote (deployed)
     for env_path in [Path(__file__).parent.parent / ".env", Path("/root/.env")]:
-        if env_path.exists():
-            load_dotenv(env_path)
-            break
+        try:
+            if env_path.is_file():
+                load_dotenv(env_path)
+                break
+        except OSError:
+            continue
 
     app_name = os.environ.get("APP_NAME", "doc")
     app_name = re.sub(r'[^a-zA-Z0-9-_]', '', app_name) or "doc"

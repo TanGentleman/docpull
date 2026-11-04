@@ -1,9 +1,9 @@
 """Manual tests for the content-scraper Modal API endpoints.
 
 Usage:
-    python tests/test_modal.py           # Run all tests sequentially
-    python tests/test_modal.py parallel  # Fetch all sites in parallel
-    python tests/test_modal.py bulk      # Test bulk job endpoints
+    python scripts/smoke_modal.py           # Run all tests sequentially
+    python scripts/smoke_modal.py parallel  # Fetch all sites in parallel
+    python scripts/smoke_modal.py bulk      # Test bulk job endpoints
 """
 
 import asyncio
@@ -333,7 +333,7 @@ if __name__ == "__main__":
             run_bulk_tests()
         else:
             print(f"Unknown command: {sys.argv[1]}")
-            print("Usage: python tests/test_modal.py [parallel|bulk]")
+            print("Usage: python scripts/smoke_modal.py [parallel|bulk]")
             sys.exit(1)
     else:
         run_sequential_tests()
