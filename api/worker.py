@@ -102,10 +102,10 @@ def _set_cached(key: str, data: dict) -> None:
     _cache[key] = {**data, "timestamp": time.time()}
 
 
-def _get_cached(key: str) -> dict | None:
+def _get_cached(key: str, max_age: int = DEFAULT_MAX_AGE) -> dict | None:
     try:
         entry = _cache[key]
-        if entry and (time.time() - entry.get("timestamp", 0)) < DEFAULT_MAX_AGE:
+        if entry and (time.time() - entry.get("timestamp", 0)) < max_age:
             return entry
     except KeyError:
         pass
@@ -290,6 +290,7 @@ class PlaywrightWorkerBase:
         paths: list[str],
         config: dict,
         batch_size: int = 25,
+        max_age: int = DEFAULT_MAX_AGE,
     ) -> dict:
         """Process a batch of pages for a bulk job.
 
@@ -319,13 +320,13 @@ class PlaywrightWorkerBase:
                 url = base_url + path
 
                 # Skip if fresh cache hit
-                if _get_cached(cache_key):
+                if _get_cached(cache_key, max_age):
                     summary["skipped"] += 1
                     continue
 
-                # Skip if error threshold exceeded and not expired
+                # Skip if error threshold exceeded and not expired (max_age=0 forces a retry)
                 try:
-                    err = _error_tracker.get(cache_key, {})
+                    err = {} if max_age == 0 else _error_tracker.get(cache_key, {})
                     if (
                         err.get("count", 0) >= ERROR_THRESHOLD
                         and time.time() - err.get("timestamp", 0) < ERROR_EXPIRY
