@@ -34,8 +34,8 @@ from api.bulk import (
     JobStatus,
     calculate_batches,
     create_job,
+    get_job,
     jobs,
-    update_job_progress,
 )
 from api.urls import clean_url, is_asset_url, normalize_page_path, normalize_path, normalize_url
 
@@ -1059,12 +1059,13 @@ async def _submit_bulk_job_impl(request: BulkScrapeRequest):
     # Spawn workers fire-and-forget – pass full config dict
     sites_config = load_sites_config()
     worker = PlaywrightWorker()
-    for batch in batches:
+    for i, batch in enumerate(batches):
         cfg = sites_config.get(batch["site_id"])
         if cfg:
             worker.process_batch.spawn(
                 job_id, batch["site_id"], batch["paths"],
                 cfg.model_dump(), request.batch_size, request.max_age,
+                batch_index=i,
             )
 
     print(f"[submit_bulk_job] job_id={job_id} batches={len(batches)} sites={list(grouped['by_site'].keys())}")
@@ -1079,7 +1080,7 @@ async def submit_bulk_job(request: BulkScrapeRequest, _: None = Depends(require_
 @web_app.get("/jobs/{job_id}")
 async def get_job_status(job_id: str):
     try:
-        job = jobs[job_id]
+        job = get_job(job_id)
     except KeyError:
         raise HTTPException(404, f"Job not found: {job_id}")
 
@@ -1104,7 +1105,7 @@ async def list_jobs(limit: int = Query(default=20, le=100)):
     result = []
     for job_id in all_keys[-limit:]:
         try:
-            job = jobs[job_id]
+            job = get_job(job_id)
             result.append({
                 "job_id": job_id, "status": job["status"],
                 "created_at": job["created_at"], "sites": job["input"]["sites"],

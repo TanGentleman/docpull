@@ -59,12 +59,13 @@ def server(monkeypatch):
     import api.server as server
 
     sites = json.loads(SITES_JSON.read_text())["sites"]
-    state = {"cache": {}, "error_tracker": {}, "sites_dict": {}, "jobs": {}}
+    state = {"cache": {}, "error_tracker": {}, "sites_dict": {}, "jobs": {}, "job_results": {}}
     monkeypatch.setattr(server, "cache", state["cache"])
     monkeypatch.setattr(server, "error_tracker", state["error_tracker"])
     monkeypatch.setattr(server, "sites_dict", state["sites_dict"])
     monkeypatch.setattr(server, "jobs", state["jobs"])
     monkeypatch.setattr(bulk, "jobs", state["jobs"])
+    monkeypatch.setattr(bulk, "job_results", state["job_results"])
     monkeypatch.setattr(server, "load_sites_from_file", lambda: json.loads(json.dumps(sites)))
     monkeypatch.setattr(server, "PlaywrightWorker", FakeWorker())
     monkeypatch.setattr(server, "ACCESS_KEY", None)

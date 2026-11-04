@@ -34,6 +34,7 @@ def run_batch(monkeypatch):
     monkeypatch.setattr(worker_mod, "_cache", cache)
     monkeypatch.setattr(worker_mod, "_error_tracker", errors)
     monkeypatch.setattr(bulk, "jobs", jobs)
+    monkeypatch.setattr(bulk, "job_results", {})
     jobs["j"] = {"progress": {"completed": 0, "success": 0, "skipped": 0, "failed": 0},
                  "workers": {"total": 1, "completed": 0}, "errors": [], "status": "in_progress"}
 
