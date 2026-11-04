@@ -1164,7 +1164,7 @@ async def list_jobs(limit: int = Query(default=20, le=100)):
 
 @web_app.get("/api/sites")
 async def api_list_sites():
-    return await get_sites()
+    return await get_sites(include_test_paths=False)
 
 
 @web_app.get("/api/sites/config")
@@ -1174,12 +1174,12 @@ async def api_get_sites_config():
 
 @web_app.get("/api/sites/{site_id}/links")
 async def api_get_links(site_id: str):
-    return await get_site_links(site_id)
+    return await get_site_links(site_id, max_age=DEFAULT_MAX_AGE)
 
 
 @web_app.get("/api/sites/{site_id}/content")
 async def api_get_content(site_id: str, path: str = Query(default="")):
-    return await get_site_content(site_id, path=path)
+    return await get_site_content(site_id, path=path, max_age=DEFAULT_MAX_AGE)
 
 
 @web_app.get("/api/discover")
@@ -1201,7 +1201,7 @@ async def api_get_job(job_id: str):
 
 @web_app.get("/api/jobs")
 async def api_list_jobs():
-    return await list_jobs()
+    return await list_jobs(limit=20)
 
 
 @web_app.get("/api/cache/keys")
@@ -1307,7 +1307,7 @@ class _ContentPostBody(BaseModel):
 
 @web_app.post("/api/content")
 async def api_content_post(req: _ContentPostBody):
-    result = await get_site_content(req.site_id, path=req.path)
+    result = await get_site_content(req.site_id, path=req.path, max_age=DEFAULT_MAX_AGE)
     content = result.content
     return {
         "success": True,
