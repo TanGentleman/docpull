@@ -4,32 +4,52 @@ Docpull uses a single Modal app with separated concerns: a lightweight API serve
 
 ## Components
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Modal App                                │
-│              (configurable via --app-name)                  │
-│                                                             │
-│  ┌──────────────────────┐    ┌──────────────────────────┐  │
-│  │    api/server.py     │    │     api/worker.py        │  │
-│  │    (api_image)       │    │   (playwright_image)     │  │
-│  │                      │    │                          │  │
-│  │  - FastAPI endpoints │    │  - Browser automation    │  │
-│  │  - UI serving (/)    │───>│  - scrape_content        │  │
-│  │  - Cache read/write  │    │  - scrape_links          │  │
-│  │  - Error tracking    │    │  - discover_selectors    │  │
-│  │  - Job orchestration │    │  - process_batch         │  │
-│  │  - HTTP link scraping│    │                          │  │
-│  └──────────────────────┘    └──────────────────────────┘  │
-│           │                              │                  │
-│           └──────────┬───────────────────┘                  │
-│                      ▼                                      │
-│              ┌───────────────┐                              │
-│              │  Modal Dicts  │                              │
-│              │  - cache      │                              │
-│              │  - errors     │                              │
-│              │  - sites      │                              │
-│              └───────────────┘                              │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    CLI["docpull CLI<br/><i>cli/main.py</i>"]
+    UI["Web UI<br/><i>ui/ui.html</i>"]
+
+    subgraph APP["Modal App (--app-name)"]
+        direction LR
+        subgraph API["api_image · lightweight"]
+            SERVER["FastAPI server<br/><i>api/server.py</i><br/>endpoints · UI · auth<br/>cache · errors · jobs<br/>HTTP link scraping"]
+        end
+        subgraph PW["playwright_image · Chromium"]
+            WORKER["PlaywrightWorker<br/><i>api/worker.py</i><br/>scrape_content · scrape_links<br/>discover_selectors · process_batch"]
+        end
+        subgraph STORE["Modal Dicts"]
+            CACHE[("scraper-cache")]
+            ERRORS[("scraper-errors")]
+            SITES[("scraper-sites")]
+        end
+    end
+
+    DOCS["Docs sites"]
+
+    CLI -- "HTTP + X-Access-Key" --> SERVER
+    UI --> SERVER
+    SERVER -- ".remote() / .spawn()" --> WORKER
+    SERVER <--> CACHE
+    SERVER <--> ERRORS
+    SERVER <--> SITES
+    WORKER -- "batch results" --> CACHE
+    WORKER -- "headless browser" --> DOCS
+    SERVER -- "httpx (no browser)" --> DOCS
+
+    classDef client fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e
+    classDef api fill:#dcfce7,stroke:#16a34a,color:#14532d
+    classDef worker fill:#fef3c7,stroke:#d97706,color:#78350f
+    classDef store fill:#ede9fe,stroke:#7c3aed,color:#3b0764
+    classDef ext fill:#f1f5f9,stroke:#64748b,color:#0f172a
+    class CLI,UI client
+    class SERVER api
+    class WORKER worker
+    class CACHE,ERRORS,SITES store
+    class DOCS ext
+    style APP fill:#f8fafc,stroke:#94a3b8
+    style API fill:#f0fdf4,stroke:#86efac
+    style PW fill:#fffbeb,stroke:#fcd34d
+    style STORE fill:#f5f3ff,stroke:#c4b5fd
 ```
 
 ## Images
@@ -47,19 +67,43 @@ Docpull uses a single Modal app with separated concerns: a lightweight API serve
 ## Data Flow
 
 ### Single Page Scrape
-```
-Client → server.py → PlaywrightWorker.scrape_content() → server.py → cache → Client
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as server.py
+    participant D as scraper-cache
+    participant W as PlaywrightWorker
+    C->>S: GET /sites/{id}/content?path=...
+    S->>D: lookup (max_age)
+    alt cache hit
+        D-->>S: cached markdown
+    else cache miss
+        S->>W: scrape_content.remote()
+        W-->>S: markdown
+        S->>D: store
+    end
+    S-->>C: markdown
 ```
 
 ### Bulk Scrape (fire-and-forget)
-```
-Client → server.py → PlaywrightWorker.process_batch.spawn() → worker writes to cache
-                  └─ returns job_id immediately
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as server.py
+    participant W as PlaywrightWorker (xN)
+    participant D as scraper-cache
+    C->>S: POST /jobs/bulk
+    S->>W: process_batch.spawn() per batch
+    S-->>C: job_id (immediately)
+    W->>D: write each page
+    C->>S: GET /jobs/{job_id}
+    S-->>C: progress
 ```
 
 ### HTTP Link Discovery (no browser)
-```
-Client → server.py → scrape_links_fetch() → cache → Client
+```mermaid
+flowchart LR
+    C[Client] --> S["server.py<br/>scrape_links_fetch()"] --> D[(scraper-cache)] --> C
 ```
 
 ## Files

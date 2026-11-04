@@ -1,0 +1,10 @@
+{
+  "repo_notes": [
+    {
+      "content": "Diagrams: prefer Mermaid. For architecture, use one flowchart with subgraphs for the Modal app (api_image FastAPI server in api/server.py, playwright_image PlaywrightWorker in api/worker.py, Modal Dicts scraper-cache / scraper-errors / scraper-sites), clients (docpull CLI, ui/ui.html) and external docs sites. Color nodes by role with classDef (clients blue, API server green, worker amber, storage purple). Use sequenceDiagrams for request flows (single page scrape with cache hit/miss, fire-and-forget bulk jobs via process_batch.spawn). ARCHITECTURE.md holds the canonical diagrams; keep wiki diagrams consistent with it. Keep labels short."
+    },
+    {
+      "content": "Agent tooling: CLAUDE.md has project instructions and .agents/skills/ holds repo agent skills (e.g. pr-descriptions for PR body style). The offline test suite is `uv run pytest` (tests/conftest.py fakes Modal Dicts and PlaywrightWorker); the live smoke test is scripts/smoke_modal.py."
+    }
+  ]
+}
