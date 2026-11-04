@@ -291,6 +291,7 @@ class PlaywrightWorkerBase:
         config: dict,
         batch_size: int = 25,
         max_age: int = DEFAULT_MAX_AGE,
+        batch_index: int = 0,
     ) -> dict:
         """Process a batch of pages for a bulk job.
 
@@ -299,7 +300,7 @@ class PlaywrightWorkerBase:
 
         Returns {"content": list[dict], "metadata": dict} or {"error": str, "code": str}.
         """
-        from api.bulk import DEFAULT_DELAY_MS, update_job_progress
+        from api.bulk import DEFAULT_DELAY_MS, record_batch_result
 
         content_cfg = config.get("content", {})
         base_url = config.get("baseUrl", "")
@@ -381,7 +382,7 @@ class PlaywrightWorkerBase:
         finally:
             context.close()
 
-        update_job_progress(job_id, summary)
+        record_batch_result(job_id, batch_index, summary)
         return {"content": items, "metadata": {"job_id": job_id, "site_id": site_id, **summary}}
 
     # ------------------------------------------------------------------

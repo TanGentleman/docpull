@@ -7,8 +7,13 @@ from enum import Enum
 
 import modal
 
-# Shared Modal Dict for job tracking
+# Shared Modal Dicts for job tracking. Each worker writes only its own
+# `job_results["{job_id}:{batch_index}"]` entry, so concurrent workers never
+# overwrite each other; progress is summed when the job is read.
 jobs = modal.Dict.from_name("scrape-jobs", create_if_missing=True)
+job_results = modal.Dict.from_name("scrape-job-results", create_if_missing=True)
+
+MAX_JOB_ERRORS = 20
 
 # Constants
 MAX_CONTAINERS = 100
@@ -43,26 +48,56 @@ def create_job(urls: list[str], by_site: dict, assets: list, unknown: list) -> s
     return job_id
 
 
-def update_job_progress(job_id: str, result: dict):
-    """Update job progress from a worker result."""
+def record_batch_result(job_id: str, batch_index: int, result: dict):
+    """Store one worker's batch result under its own key."""
     try:
-        job = jobs[job_id]
-        job["progress"]["completed"] += result.get("success", 0) + result.get("skipped", 0) + result.get("failed", 0)
-        job["progress"]["success"] += result.get("success", 0)
-        job["progress"]["skipped"] += result.get("skipped", 0)
-        job["progress"]["failed"] += result.get("failed", 0)
-        job["workers"]["completed"] += 1
-        job["updated_at"] = time.time()
-
-        if result.get("errors") and len(job["errors"]) < 20:
-            job["errors"].extend(result["errors"][:20 - len(job["errors"])])
-
-        if job["workers"]["completed"] >= job["workers"]["total"]:
-            job["status"] = JobStatus.COMPLETED
-
-        jobs[job_id] = job
+        job_results[f"{job_id}:{batch_index}"] = {
+            "success": result.get("success", 0),
+            "skipped": result.get("skipped", 0),
+            "failed": result.get("failed", 0),
+            "errors": (result.get("errors") or [])[:MAX_JOB_ERRORS],
+            "finished_at": time.time(),
+        }
     except Exception as e:
-        print(f"[update_job_progress] Error: {e}")
+        print(f"[record_batch_result] Error: {e}")
+
+
+def get_job(job_id: str) -> dict:
+    """Return the job with progress summed from its batch results.
+
+    Raises KeyError if the job doesn't exist. Once every batch has reported,
+    the final totals are saved on the job so later reads are a single lookup.
+    """
+    job = jobs[job_id]
+    if job["status"] != JobStatus.IN_PROGRESS:
+        return job
+
+    progress = {"completed": 0, "success": 0, "skipped": 0, "failed": 0}
+    errors: list = []
+    done = 0
+    updated_at = job["updated_at"]
+    for i in range(job["workers"]["total"]):
+        r = job_results.get(f"{job_id}:{i}")
+        if not r:
+            continue
+        done += 1
+        for k in ("success", "skipped", "failed"):
+            progress[k] += r[k]
+            progress["completed"] += r[k]
+        errors.extend(r["errors"][: MAX_JOB_ERRORS - len(errors)])
+        updated_at = max(updated_at, r["finished_at"])
+
+    job = {
+        **job,
+        "progress": progress,
+        "workers": {**job["workers"], "completed": done},
+        "errors": errors,
+        "updated_at": updated_at,
+    }
+    if done >= job["workers"]["total"]:
+        job["status"] = JobStatus.COMPLETED
+        jobs[job_id] = job
+    return job
 
 
 def calculate_batches(by_site: dict[str, list[str]], max_containers: int = MAX_CONTAINERS) -> list[dict]:
