@@ -17,3 +17,12 @@ docpull = "cli.main:app"
 
 [tool.setuptools.packages.find]
 include = ["cli*", "config*"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

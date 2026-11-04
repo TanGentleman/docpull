@@ -25,6 +25,7 @@ docpull/
 ```bash
 modal serve api/server.py    # API + UI with hot-reload
 python deploy.py             # Deploy to Modal
+uv run pytest                # Offline tests (no Modal/browser needed)
 ```
 
 ## Adding Sites
