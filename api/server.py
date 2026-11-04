@@ -376,45 +376,6 @@ web_app = FastAPI(title="Content Scraper API")
 
 
 # --- Access Key Validation -----------------------------------------
-# Endpoints that always require the access key
-PROTECTED_ENDPOINTS = {
-    ("DELETE", "/cache"),      # DELETE /cache/{site_id}
-    ("DELETE", "/errors"),     # DELETE /errors and DELETE /errors/{site_id}
-    ("POST", "/sites"),        # POST /sites/{site_id}/index (check for /index suffix)
-    ("POST", "/jobs/bulk"),    # POST /jobs/bulk
-    ("POST", "/api/jobs/bulk"), # POST /api/jobs/bulk
-}
-
-
-def requires_access_key(method: str, path: str, body: dict | None = None) -> bool:
-    """Check if the endpoint requires an access key."""
-    if not ACCESS_KEY:
-        return False
-
-    # DELETE /cache/{site_id}
-    if method == "DELETE" and path.startswith("/cache/"):
-        return True
-
-    # DELETE /errors and DELETE /errors/{site_id}
-    if method == "DELETE" and (path == "/errors" or path.startswith("/errors/")):
-        return True
-
-    # POST /sites/{site_id}/index
-    if method == "POST" and path.startswith("/sites/") and path.endswith("/index"):
-        return True
-
-    # POST /jobs/bulk or /api/jobs/bulk
-    if method == "POST" and (path == "/jobs/bulk" or path == "/api/jobs/bulk"):
-        return True
-
-    # POST /export/zip or /api/export - requires key when cached_only=false
-    if method == "POST" and (path == "/export/zip" or path == "/api/export"):
-        if body and body.get("cached_only") is False:
-            return True
-
-    return False
-
-
 def check_access_key(request) -> bool:
     """Check if request has valid access key."""
     if not ACCESS_KEY:
@@ -479,7 +440,7 @@ async def get_sites_config_endpoint():
 
 
 @web_app.post("/sites/{site_id}")
-async def add_site(site_id: str, config: SiteConfig):
+async def add_site(site_id: str, config: SiteConfig, _: None = Depends(require_access_key)):
     current = sites_dict.get("_all_sites")
     if current is None:
         current = load_sites_from_file()
@@ -489,7 +450,7 @@ async def add_site(site_id: str, config: SiteConfig):
 
 
 @web_app.delete("/sites/{site_id}")
-async def delete_site(site_id: str):
+async def delete_site(site_id: str, _: None = Depends(require_access_key)):
     current = sites_dict.get("_all_sites")
     if current is None:
         current = load_sites_from_file()
@@ -501,7 +462,7 @@ async def delete_site(site_id: str):
 
 
 @web_app.post("/sites/reset")
-async def reset_sites():
+async def reset_sites(_: None = Depends(require_access_key)):
     file_sites = load_sites_from_file()
     sites_dict["_all_sites"] = file_sites
     return {"success": True, "count": len(file_sites), "sites": list(file_sites.keys()), "message": f"Reset to {len(file_sites)} sites from sites.json"}
@@ -1329,32 +1290,32 @@ class _AddSiteBody(BaseModel):
 
 
 @web_app.post("/api/add-site")
-async def api_add_site(req: _AddSiteBody):
+async def api_add_site(req: _AddSiteBody, _: None = Depends(require_access_key)):
     cfg = SiteConfig(
         name=req.name, baseUrl=req.baseUrl, mode=req.mode,
         defaultPath=req.defaultPath, testPath=req.testPath,
         extractor=req.extractor, links=req.links, content=req.content,
     )
     try:
-        result = await add_site(req.site_id, cfg)
+        result = await add_site(req.site_id, cfg, None)
         return {"success": True, "stdout": f"Site '{req.site_id}' added successfully!\n\nConfig: {result.get('config', {})}", "stderr": ""}
     except HTTPException as e:
         return {"success": False, "stdout": "", "stderr": f"Failed to add site: {e.detail}"}
 
 
 @web_app.delete("/api/sites/{site_id}")
-async def api_delete_site(site_id: str):
+async def api_delete_site(site_id: str, _: None = Depends(require_access_key)):
     try:
-        await delete_site(site_id)
+        await delete_site(site_id, None)
         return {"success": True, "stdout": f"Site '{site_id}' deleted successfully!", "stderr": ""}
     except HTTPException as e:
         return {"success": False, "stdout": "", "stderr": f"Failed to delete site: {e.detail}"}
 
 
 @web_app.post("/api/sites/reset")
-async def api_reset_sites():
+async def api_reset_sites(_: None = Depends(require_access_key)):
     try:
-        result = await reset_sites()
+        result = await reset_sites(None)
         return {"success": True, "stdout": f"Sites config reset! Loaded {result.get('count', '?')} sites from sites.json", "stderr": ""}
     except HTTPException as e:
         return {"success": False, "stdout": "", "stderr": f"Failed to reset sites: {e.detail}"}

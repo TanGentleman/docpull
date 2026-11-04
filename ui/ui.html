@@ -751,7 +751,7 @@
       try {
         const res = await fetch(`${API}/add-site`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: withAccessKey({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({ site_id: siteId, ...config })
         });
         const data = await res.json();
